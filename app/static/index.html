@@ -9,9 +9,9 @@
 <body>
   <main>
     <header>
-      <span class="eyebrow">BEAD STUDIO</span>
+      <span class="eyebrow">BEAD STUDIO · MARD 2.6 MM</span>
       <h1>把喜欢的图片，变成拼豆图纸</h1>
-      <p>上传图片，选择尺寸与颜色数量，即可生成带色号的网格和用量清单。</p>
+      <p>自动匹配 MARD 2.6 mm 色卡，每个格子都标注色号。也可以先用一句话抠出主体，再决定是否采用。</p>
     </header>
 
     <section class="card controls">
@@ -20,18 +20,44 @@
         <span id="file-label">点击选择图片，或拖到这里</span>
         <small>PNG、JPG 或 WebP，最大 12 MB</small>
       </label>
+
+      <section id="source-panel" class="source-panel hidden">
+        <div class="source-preview checker"><img id="source-preview" alt="原图预览"></div>
+        <div class="cutout-controls">
+          <label for="cutout-prompt">想保留什么？</label>
+          <div class="inline-form">
+            <input id="cutout-prompt" type="text" maxlength="100" placeholder="例如：人物、红色汽车、白色的猫">
+            <button id="cutout" class="secondary" type="button">智能抠图</button>
+          </div>
+          <small>英文描述效果通常更稳定。首次抠图会下载识别模型，之后由浏览器缓存。</small>
+          <p id="cutout-message" class="status" role="status"></p>
+        </div>
+      </section>
+
+      <section id="cutout-result" class="cutout-result hidden">
+        <div class="section-title"><h2>抠图结果</h2><span class="badge">等待确认</span></div>
+        <div class="cutout-review">
+          <div class="checker"><img id="cutout-preview" alt="抠图结果预览"></div>
+          <div class="review-actions">
+            <button id="use-cutout" type="button">采用这个结果</button>
+            <button id="discard-cutout" class="ghost" type="button">弃用，继续使用原图</button>
+          </div>
+        </div>
+      </section>
+
       <div class="fields">
-        <label>横向颗数<input id="width" type="number" min="8" max="100" value="32"></label>
-        <label>纵向颗数<input id="height" type="number" min="8" max="100" value="32"></label>
-        <label>颜色数量<input id="colours" type="number" min="2" max="25" value="12"></label>
+        <label for="board">板子规格
+          <select id="board" aria-label="板子规格"></select>
+        </label>
+        <div class="palette-note"><strong>MARD 2.6 mm · 221 色</strong><span>自动识别并匹配所需颜色，不限制颜色数量</span></div>
       </div>
-      <button id="generate">生成图纸</button>
-      <p id="message" role="status"></p>
+      <button id="generate" type="button">生成 MARD 色号图纸</button>
+      <p id="message" class="status" role="status"></p>
     </section>
 
     <section id="result" class="result hidden">
       <div class="card preview">
-        <div class="section-title"><h2>图纸预览</h2><a id="download" download="bead-pattern.png">下载 PNG</a></div>
+        <div class="section-title"><h2>图纸预览</h2><a id="download" download="mard-bead-pattern.png">下载 PNG</a></div>
         <div class="image-wrap"><img id="pattern" alt="生成的拼豆图纸"></div>
       </div>
       <div class="card summary">
@@ -40,6 +66,6 @@
       </div>
     </section>
   </main>
-  <script src="/static/app.js"></script>
+  <script type="module" src="/static/app.js"></script>
 </body>
 </html>

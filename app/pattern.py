@@ -28,30 +28,15 @@ def _srgb_to_lab(rgb: np.ndarray) -> np.ndarray:
 
 
 def _fit_image(image: Image.Image, width: int, height: int) -> Image.Image:
-    image = ImageOps.exif_transpose(image).convert("RGB")
+    image = ImageOps.exif_transpose(image).convert("RGBA")
     return ImageOps.fit(image, (width, height), method=Image.Resampling.LANCZOS)
-
-
-def _select_palette(pixels: np.ndarray, colour_count: int) -> list[dict]:
-    """Choose the most useful colours from the starter palette for this image."""
-    palette_rgb = np.array([item["rgb"] for item in BEAD_PALETTE])
-    palette_lab = _srgb_to_lab(palette_rgb)
-    sample = pixels.reshape(-1, 3)
-    sample_lab = _srgb_to_lab(sample)
-    distances = np.sum((sample_lab[:, None, :] - palette_lab[None, :, :]) ** 2, axis=2)
-    nearest = np.argmin(distances, axis=1)
-    counts = Counter(nearest.tolist())
-    selected_indices = [index for index, _ in counts.most_common(colour_count)]
-    if len(selected_indices) < colour_count:
-        selected_indices.extend(i for i in range(len(BEAD_PALETTE)) if i not in selected_indices)
-    return [BEAD_PALETTE[i] for i in selected_indices[:colour_count]]
 
 
 def _map_to_palette(pixels: np.ndarray, palette: list[dict]) -> np.ndarray:
     pixel_lab = _srgb_to_lab(pixels.reshape(-1, 3))
     palette_lab = _srgb_to_lab(np.array([item["rgb"] for item in palette]))
     distances = np.sum((pixel_lab[:, None, :] - palette_lab[None, :, :]) ** 2, axis=2)
-    return np.argmin(distances, axis=1).reshape(pixels.shape[:2])
+    return np.argmin(distances, axis=1).reshape(pixels.shape[:-1])
 
 
 def _text_colour(rgb: tuple[int, int, int]) -> str:
@@ -61,7 +46,7 @@ def _text_colour(rgb: tuple[int, int, int]) -> str:
 
 def _render_pattern(indices: np.ndarray, palette: list[dict]) -> bytes:
     rows, columns = indices.shape
-    cell = max(22, min(42, math.floor(1400 / max(columns, 1))))
+    cell = max(20, min(36, math.floor(1800 / max(columns, 1))))
     margin = 2
     canvas = Image.new("RGB", (columns * cell + margin * 2, rows * cell + margin * 2), "white")
     draw = ImageDraw.Draw(canvas)
@@ -69,9 +54,13 @@ def _render_pattern(indices: np.ndarray, palette: list[dict]) -> bytes:
 
     for row in range(rows):
         for column in range(columns):
-            colour = palette[int(indices[row, column])]
             x0, y0 = margin + column * cell, margin + row * cell
             x1, y1 = x0 + cell, y0 + cell
+            palette_index = int(indices[row, column])
+            if palette_index < 0:
+                draw.rectangle((x0, y0, x1, y1), fill=(250, 250, 250), outline=(180, 180, 180), width=1)
+                continue
+            colour = palette[palette_index]
             draw.rectangle((x0, y0, x1, y1), fill=colour["rgb"], outline=(85, 85, 85), width=1)
             label = colour["code"]
             box = draw.textbbox((0, 0), label, font=font)
@@ -87,12 +76,16 @@ def _render_pattern(indices: np.ndarray, palette: list[dict]) -> bytes:
     return output.getvalue()
 
 
-def generate_pattern(image: Image.Image, width: int, height: int, colour_count: int) -> tuple[bytes, list[dict]]:
+def generate_pattern(image: Image.Image, width: int, height: int) -> tuple[bytes, list[dict]]:
     resized = _fit_image(image, width, height)
     pixels = np.asarray(resized)
-    palette = _select_palette(pixels, colour_count)
-    indices = _map_to_palette(pixels, palette)
-    counts = Counter(indices.reshape(-1).tolist())
+    palette = BEAD_PALETTE
+    opaque = pixels[..., 3] >= 64
+    if not np.any(opaque):
+        raise ValueError("抠图结果中没有可用的前景")
+    indices = np.full((height, width), -1, dtype=np.int16)
+    indices[opaque] = _map_to_palette(pixels[..., :3][opaque], palette)
+    counts = Counter(indices[opaque].tolist())
     summary = [
         {
             "code": item["code"],

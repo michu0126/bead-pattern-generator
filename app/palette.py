@@ -1,33 +1,28 @@
-"""A small, brand-neutral starter palette.
+"""MARD 2.6 mm classic 221-colour reference palette.
 
-The codes are intentionally generic. Replace or extend this list with the
-official colour chart for the bead brand the user owns.
+Screen RGB values are matching references, not measurements of physical beads.
+They are based on the open-source MARD colour table used by pixel-to-beads.
 """
 
+MARD_2_6_HEX = {
+    "A1": "#FFF5CB", "A2": "#FFFFCD", "A3": "#FEF296", "A4": "#FEF751", "A5": "#FEDD4D", "A6": "#FCC73C", "A7": "#FD8342", "A8": "#E6C62D", "A9": "#FAAA71", "A10": "#FD9443", "A11": "#FFCF7B", "A12": "#FDBC90", "A13": "#FFC366", "A14": "#FF7544", "A15": "#FFF365", "A16": "#FFF49F", "A17": "#FDE776", "A18": "#FEB67A", "A19": "#FB9283", "A20": "#FEE37F", "A21": "#FFE396", "A22": "#F4F67B", "A23": "#E6C9B7", "A24": "#F7F8A1", "A25": "#FFD77E", "A26": "#FFC830",
+    "B1": "#E4F149", "B2": "#B7EB45", "B3": "#98F5A9", "B4": "#51FF50", "B5": "#6FD364", "B6": "#7AEB87", "B7": "#3CB48C", "B8": "#168C4F", "B9": "#27523A", "B10": "#ACE2D8", "B11": "#50641A", "B12": "#1F6A4E", "B13": "#C7FF86", "B14": "#D0EE39", "B15": "#205727", "B16": "#CDFFAA", "B17": "#B5C230", "B18": "#E4F854", "B19": "#01D0A1", "B20": "#CAFFD7", "B21": "#147C74", "B22": "#0D5349", "B23": "#31451C", "B24": "#E5FB9F", "B25": "#5C9083", "B26": "#A9A54D", "B27": "#CCE1AF", "B28": "#9EE588", "B29": "#C5E352", "B30": "#E3FDB2", "B31": "#B0E792", "B32": "#92AD60",
+    "C1": "#E1FEE2", "C2": "#BAF6ED", "C3": "#A8E1FB", "C4": "#85D2FF", "C5": "#23BAE4", "C6": "#78BCF7", "C7": "#3C8AEB", "C8": "#1A5EC4", "C9": "#2F26CD", "C10": "#30D9ED", "C11": "#01C5D0", "C12": "#1A3758", "C13": "#B5D7FF", "C14": "#E1FFFA", "C15": "#01CAD2", "C16": "#09548E", "C17": "#7CE7F5", "C18": "#264259", "C19": "#259B8A", "C20": "#167CC0", "C21": "#DEEEFD", "C22": "#7FC0D3", "C23": "#C7E2FE", "C24": "#7CC4FF", "C25": "#A9E4E5", "C26": "#3CAED7", "C27": "#D3DFFB", "C28": "#BBD0ED", "C29": "#34488E",
+    "D1": "#B9CFFF", "D2": "#9CA6DB", "D3": "#214EB1", "D4": "#2E4771", "D5": "#C66FB8", "D6": "#AB76E5", "D7": "#7F4DC7", "D8": "#E2CCFF", "D9": "#C8BEFD", "D10": "#351D50", "D11": "#BFC2FF", "D12": "#DAB0E5", "D13": "#C64DAF", "D14": "#9735B3", "D15": "#47297E", "D16": "#E3E3FF", "D17": "#C90AFD", "D18": "#B77BD6", "D19": "#E8CCFA", "D20": "#A63AEA", "D21": "#8A349B", "D22": "#595193", "D23": "#F0E8FC", "D24": "#7F78EA", "D25": "#423C00", "D26": "#DFC2F7",
+    "E1": "#FFD1CC", "E2": "#FFCAE9", "E3": "#FB8EC5", "E4": "#EE79AC", "E5": "#F553A5", "E6": "#FD2F80", "E7": "#A2186B", "E8": "#FFDBE7", "E9": "#EA8CD9", "E10": "#BF3974", "E11": "#FDE7E3", "E12": "#FDAFDE", "E13": "#A71284", "E14": "#FDD3BF", "E15": "#F2D1D8", "E16": "#FFF3EC", "E17": "#FBE9F6", "E18": "#FDD1E9", "E19": "#F5D3F3", "E20": "#F3D7EA", "E21": "#D6B3B8", "E22": "#C785AF", "E23": "#9F89A3", "E24": "#E1BCE8",
+    "F1": "#FDA199", "F2": "#FA6A61", "F3": "#EC4A5A", "F4": "#FF452C", "F5": "#F10702", "F6": "#B53710", "F7": "#811430", "F8": "#BC0830", "F9": "#E67088", "F10": "#8D410B", "F11": "#6F3329", "F12": "#F8425D", "F13": "#D14B2F", "F14": "#FDABA9", "F15": "#DE0C2C", "F16": "#FEDEDE", "F17": "#FBAE9F", "F18": "#E2804D", "F19": "#C54B60", "F20": "#CC9392", "F21": "#F7B5C7", "F22": "#FDC0D0", "F23": "#D58084", "F24": "#E698A9", "F25": "#E24B4F",
+    "G1": "#FEE5C7", "G2": "#FDCFB7", "G3": "#F9C2A5", "G4": "#DDB998", "G5": "#F2A76C", "G6": "#EE9868", "G7": "#91654D", "G8": "#4E312D", "G9": "#E9BB84", "G10": "#C09143", "G11": "#E4C896", "G12": "#DFB855", "G13": "#D09059", "G14": "#866956", "G15": "#F4F3DD", "G16": "#F0E0CF", "G17": "#5C5248", "G18": "#FEEDDA", "G19": "#AC603C", "G20": "#B1623F", "G21": "#CB916E",
+    "H1": "#FBFBFB", "H2": "#FFFFFF", "H3": "#AFAFAF", "H4": "#979296", "H5": "#5F5F5F", "H6": "#2C2C2C", "H7": "#000000", "H8": "#F8E6D0", "H9": "#E6E3DB", "H10": "#E5E3F3", "H11": "#CFCCC8", "H12": "#FFF2E2", "H13": "#EBE1CC", "H14": "#C7CED9", "H15": "#9EACD7", "H16": "#231D1A", "H17": "#F6F4F5", "H18": "#FFFDF1", "H19": "#FBF2EB", "H20": "#9FACB1", "H21": "#FFFBF1", "H22": "#CACBD4", "H23": "#999D93",
+    "M1": "#BCC6B8", "M2": "#8AA386", "M3": "#697D80", "M4": "#E3D2BC", "M5": "#D0CCAA", "M6": "#B0A782", "M7": "#B4A497", "M8": "#B38281", "M9": "#A58767", "M10": "#C5B2BC", "M11": "#9F7594", "M12": "#644749", "M13": "#D19066", "M14": "#C77362", "M15": "#757D7B",
+}
+
+def _hex_to_rgb(value: str) -> tuple[int, int, int]:
+    value = value.lstrip("#")
+    return tuple(int(value[index:index + 2], 16) for index in (0, 2, 4))
+
 BEAD_PALETTE = [
-    {"code": "A01", "name": "白色", "rgb": (247, 247, 242)},
-    {"code": "A02", "name": "浅灰", "rgb": (190, 194, 191)},
-    {"code": "A03", "name": "深灰", "rgb": (91, 96, 99)},
-    {"code": "A04", "name": "黑色", "rgb": (31, 31, 31)},
-    {"code": "R01", "name": "浅粉", "rgb": (249, 187, 204)},
-    {"code": "R02", "name": "粉红", "rgb": (239, 104, 144)},
-    {"code": "R03", "name": "正红", "rgb": (207, 43, 49)},
-    {"code": "R04", "name": "深红", "rgb": (126, 35, 48)},
-    {"code": "O01", "name": "肤色", "rgb": (247, 203, 165)},
-    {"code": "O02", "name": "橙色", "rgb": (239, 117, 40)},
-    {"code": "O03", "name": "棕色", "rgb": (126, 73, 45)},
-    {"code": "O04", "name": "深棕", "rgb": (73, 46, 35)},
-    {"code": "Y01", "name": "奶油黄", "rgb": (251, 231, 154)},
-    {"code": "Y02", "name": "黄色", "rgb": (247, 204, 39)},
-    {"code": "Y03", "name": "金黄", "rgb": (224, 157, 34)},
-    {"code": "G01", "name": "薄荷绿", "rgb": (167, 218, 186)},
-    {"code": "G02", "name": "绿色", "rgb": (65, 158, 86)},
-    {"code": "G03", "name": "深绿", "rgb": (31, 91, 58)},
-    {"code": "T01", "name": "浅青", "rgb": (144, 219, 218)},
-    {"code": "T02", "name": "青色", "rgb": (34, 160, 166)},
-    {"code": "B01", "name": "浅蓝", "rgb": (157, 205, 238)},
-    {"code": "B02", "name": "蓝色", "rgb": (46, 122, 190)},
-    {"code": "B03", "name": "深蓝", "rgb": (35, 63, 125)},
-    {"code": "P01", "name": "淡紫", "rgb": (202, 175, 220)},
-    {"code": "P02", "name": "紫色", "rgb": (125, 78, 158)},
+    {"code": code, "name": f"MARD {code}", "rgb": _hex_to_rgb(value)}
+    for code, value in MARD_2_6_HEX.items()
 ]
+
+assert len(BEAD_PALETTE) == 221

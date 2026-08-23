@@ -1,10 +1,9 @@
 services:
   bead-pattern:
-    image: ${BEAD_PATTERN_IMAGE:-ghcr.io/michu0126/bead-pattern-generator:latest}
-    # 本地开发时可删除上面的 image，并取消下一行注释：
-    # build: .
+    image: michu0126/bead-pattern-generator:latest
+    container_name: bead-pattern
     ports:
-      - "${APP_PORT:-18026}:18026"
+      - "18026:18026"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -15,4 +14,3 @@ services:
       resources:
         limits:
           memory: 768M
-
