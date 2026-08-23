@@ -1,0 +1,1 @@
+"""Bead pattern generator application."""
