@@ -4,7 +4,7 @@ services:
     # 本地开发时可删除上面的 image，并取消下一行注释：
     # build: .
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "${APP_PORT:-18026}:18026"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -15,3 +15,4 @@ services:
       resources:
         limits:
           memory: 768M
+
