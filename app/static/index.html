@@ -4,15 +4,34 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=0.3.0">
 </head>
 <body>
   <main>
     <header>
-      <span class="eyebrow">BEAD STUDIO · MARD 2.6 MM</span>
+      <div class="topline">
+        <span class="eyebrow">BEAD STUDIO · MARD 2.6 MM</span>
+        <div class="version-actions">
+          <span class="version-badge">当前版本 v<span id="app-version">0.3.0</span></span>
+          <button id="clear-cache" class="cache-button" type="button">清除缓存并刷新</button>
+        </div>
+      </div>
       <h1>把喜欢的图片，变成拼豆图纸</h1>
       <p>自动匹配 MARD 2.6 mm 色卡，每个格子都标注色号。也可以先用一句话抠出主体，再决定是否采用。</p>
     </header>
+
+    <aside class="release-card" aria-labelledby="release-title">
+      <div>
+        <span class="release-label">NEW RELEASE</span>
+        <h2 id="release-title">v0.3.0 更新内容</h2>
+      </div>
+      <ul id="version-changes">
+        <li>新增一键清除页面缓存并刷新</li>
+        <li>页面资源不再缓存，更新容器后立即显示新版</li>
+        <li>新增固定版本号和版本更新说明</li>
+        <li>包含板型选项、MARD 221 色匹配和文字抠图</li>
+      </ul>
+    </aside>
 
     <section class="card controls">
       <label class="drop" id="drop-zone">
@@ -66,6 +85,6 @@
       </div>
     </section>
   </main>
-  <script type="module" src="/static/app.js"></script>
+  <script type="module" src="/static/app.js?v=0.3.0"></script>
 </body>
 </html>

@@ -11,6 +11,7 @@ const cutoutResult = $('#cutout-result');
 const cutoutPreview = $('#cutout-preview');
 const generateButton = $('#generate');
 const message = $('#message');
+const clearCacheButton = $('#clear-cache');
 
 let sourceBlob = null;
 let workingBlob = null;
@@ -27,6 +28,34 @@ const BOARD_FALLBACK = [
   { id: '100x100', label: '100 × 100（四块 50 板）' },
   { id: '104x104', label: '104 × 104（四块 52 板）' },
 ];
+
+async function loadVersion() {
+  try {
+    const response = await fetch('/api/version', { cache: 'no-store' });
+    if (!response.ok) throw new Error();
+    const data = await response.json();
+    $('#app-version').textContent = data.version;
+    $('#release-title').textContent = `v${data.version} 更新内容`;
+    $('#version-changes').innerHTML = data.changes.map(change => `<li>${change}</li>`).join('');
+  } catch (_) {
+    // HTML 内保留版本信息，旧后端或临时网络异常时仍然可见。
+  }
+}
+
+clearCacheButton.addEventListener('click', async () => {
+  clearCacheButton.disabled = true;
+  clearCacheButton.textContent = '正在清除…';
+  try {
+    await fetch('/api/cache/clear', { method: 'POST', cache: 'no-store' });
+    if ('caches' in window) {
+      const names = await caches.keys();
+      await Promise.all(names.map(name => caches.delete(name)));
+    }
+  } finally {
+    const separator = location.pathname.includes('?') ? '&' : '?';
+    location.replace(`${location.pathname}${separator}refresh=${Date.now()}`);
+  }
+});
 
 async function loadBoards() {
   try {
@@ -226,4 +255,5 @@ generateButton.addEventListener('click', async () => {
   }
 });
 
+loadVersion();
 loadBoards();

@@ -3,9 +3,18 @@
 body { margin: 0; color: var(--ink); background: radial-gradient(circle at 15% 0%, #fff 0, transparent 28%), var(--paper); font-family: Inter, system-ui, "Microsoft YaHei", sans-serif; }
 main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0; }
 header { max-width: 760px; margin-bottom: 36px; }
+.topline { display: flex; justify-content: space-between; align-items: center; gap: 18px; }
+.version-actions { display: flex; align-items: center; gap: 9px; }
+.version-badge { padding: 7px 10px; border: 1px solid #e5cbbb; border-radius: 999px; color: #8f3d2d; background: #fff7f1; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.cache-button { padding: 7px 10px; border-color: #b9afa1; color: #5b5349; background: transparent; font-size: 12px; white-space: nowrap; }
+.cache-button:hover { color: white; }
 .eyebrow { color: var(--accent); font: 700 12px/1 monospace; letter-spacing: .16em; }
 h1 { margin: 14px 0 12px; font: 700 clamp(38px, 7vw, 72px)/1.03 Georgia, "Songti SC", serif; letter-spacing: -.04em; }
 header p { color: #6c655a; font-size: 17px; line-height: 1.7; }
+.release-card { display: grid; grid-template-columns: minmax(180px, .65fr) minmax(300px, 1.35fr); gap: 24px; margin: -10px 0 24px; padding: 20px 24px; border: 1px solid #e4c8b8; border-radius: 16px; background: linear-gradient(125deg, #fff8f2, rgba(255,255,255,.8)); box-shadow: 0 10px 35px rgba(69,57,38,.06); }
+.release-card h2 { margin-top: 5px; font-size: 22px; }
+.release-label { color: var(--accent); font: 800 10px/1 monospace; letter-spacing: .14em; }
+.release-card ul { margin: 0; padding-left: 20px; color: #5f574e; font-size: 14px; line-height: 1.8; }
 .card { padding: 28px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.76); box-shadow: 0 18px 60px rgba(69,57,38,.08); }
 .drop { min-height: 138px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1.5px dashed #b6a88f; border-radius: 12px; cursor: pointer; text-align: center; transition: .2s ease; }
 .drop:hover, .drop.drag { border-color: var(--accent); background: #fff6ef; }
@@ -47,7 +56,9 @@ h2 { margin: 0; font: 700 24px/1.2 Georgia, "Songti SC", serif; }
 .swatch-row small { color: var(--muted); font-size: 11px; }
 @media (max-width: 760px) {
   main { padding-top: 40px; }
-  .source-panel, .cutout-review, .fields, .result { grid-template-columns: 1fr; }
+  .topline { align-items: flex-start; flex-direction: column; }
+  .version-actions { flex-wrap: wrap; }
+  .source-panel, .cutout-review, .fields, .result, .release-card { grid-template-columns: 1fr; }
   .inline-form { flex-direction: column; }
   .fields { gap: 10px; }
   .card { padding: 20px; }

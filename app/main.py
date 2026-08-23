@@ -6,11 +6,19 @@ from io import BytesIO
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
 from .pattern import generate_pattern
+
+APP_VERSION = "0.3.0"
+VERSION_CHANGES = [
+    "新增一键清除页面缓存并刷新",
+    "页面和静态资源默认不缓存，容器更新后立即显示新版",
+    "新增固定版本号与版本更新内容提示",
+    "保留 v0.2.0 的板型选项、MARD 221 色匹配和文字抠图",
+]
 
 BOARD_SPECS = {
     "50x50": {"id": "50x50", "label": "50 × 50（2.6 mm 标准单板）", "width": 50, "height": 50},
@@ -21,7 +29,7 @@ BOARD_SPECS = {
     "104x104": {"id": "104x104", "label": "104 × 104（四块 52 板）", "width": 104, "height": 104},
 }
 
-app = FastAPI(title="拼豆图纸生成器", version="0.2.0")
+app = FastAPI(title="拼豆图纸生成器", version=APP_VERSION)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
@@ -31,12 +39,29 @@ async def security_headers(request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
+    if request.url.path in {"/", "/api/version"} or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     return response
 
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "version": APP_VERSION}
+
+
+@app.get("/api/version")
+def version() -> dict:
+    return {"version": APP_VERSION, "changes": VERSION_CHANGES}
+
+
+@app.post("/api/cache/clear")
+def clear_cache() -> JSONResponse:
+    response = JSONResponse({"status": "ok", "version": APP_VERSION})
+    response.headers["Clear-Site-Data"] = '"cache"'
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/api/boards")
