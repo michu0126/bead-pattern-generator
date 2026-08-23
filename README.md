@@ -9,21 +9,21 @@
 ```bash
 docker run -d \
   --name bead-pattern \
-  -p 8000:8000 \
+  -p 18026:18026 \
   --restart unless-stopped \
   --read-only \
   --tmpfs /tmp:size=64m \
   ghcr.io/michu0126/bead-pattern-generator:latest
 ```
 
-浏览器打开 `http://服务器IP:8000`。
+浏览器打开 `http://服务器IP:18026`。
 
 也可以从 Docker Hub 部署：
 
 ```bash
 docker run -d \
   --name bead-pattern \
-  -p 8000:8000 \
+  -p 18026:18026 \
   --restart unless-stopped \
   你的DockerHub用户名/bead-pattern-generator:latest
 ```
@@ -42,10 +42,10 @@ BEAD_PATTERN_IMAGE=ghcr.io/michu0126/bead-pattern-generator:latest docker compos
 
 ```bash
 docker build -t bead-pattern-generator .
-docker run --rm -p 8000:8000 bead-pattern-generator
+docker run --rm -p 18026:18026 bead-pattern-generator
 ```
 
-浏览器打开 <http://localhost:8000>。
+浏览器打开 <http://localhost:18026>。
 
 ## 上传到 GitHub
 
@@ -105,7 +105,7 @@ git push origin v1.0.0
 - 不需要数据库
 - 不需要挂载数据卷
 - 单张图片最大 12 MB
-- 默认监听容器端口：8000
+- 默认监听容器端口：18026
 
 ## 色卡说明
 
