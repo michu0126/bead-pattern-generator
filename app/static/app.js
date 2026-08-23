@@ -182,7 +182,14 @@ async function maskToPng(blob, logits) {
 
 cutoutButton.addEventListener('click', async () => {
   if (!sourceBlob) { cutoutMessage.textContent = '请先选择一张图片。'; return; }
-  if (!cutoutPrompt.value.trim()) { cutoutMessage.textContent = '请描述想保留的主体。'; return; }
+  if (!cutoutPrompt.value.trim()) {
+    workingBlob = sourceBlob;
+    proposedCutout = null;
+    cutoutResult.classList.add('hidden');
+    cutoutMessage.textContent = '没有填写主体描述，已直接采用原图。';
+    message.textContent = '已采用原图，可以生成图纸。';
+    return;
+  }
   cutoutButton.disabled = true;
   cutoutMessage.textContent = '正在准备识别模型并抠图，首次使用可能需要几分钟…';
   try {

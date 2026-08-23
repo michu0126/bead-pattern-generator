@@ -12,12 +12,12 @@ from PIL import Image, UnidentifiedImageError
 
 from .pattern import generate_pattern
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 VERSION_CHANGES = [
-    "新增一键清除页面缓存并刷新",
-    "页面和静态资源默认不缓存，容器更新后立即显示新版",
-    "新增固定版本号与版本更新内容提示",
-    "保留 v0.2.0 的板型选项、MARD 221 色匹配和文字抠图",
+    "智能抠图描述改为可选",
+    "描述留空时点击智能抠图会直接采用原图",
+    "自动忽略与图片边缘连通的近白色背景，不再将外围白底标成 H2",
+    "主体内部不与边缘连通的白色仍会保留并匹配色号",
 ]
 
 BOARD_SPECS = {

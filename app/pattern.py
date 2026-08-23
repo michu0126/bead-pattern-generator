@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from io import BytesIO
 import math
 
@@ -37,6 +37,46 @@ def _map_to_palette(pixels: np.ndarray, palette: list[dict]) -> np.ndarray:
     palette_lab = _srgb_to_lab(np.array([item["rgb"] for item in palette]))
     distances = np.sum((pixel_lab[:, None, :] - palette_lab[None, :, :]) ** 2, axis=2)
     return np.argmin(distances, axis=1).reshape(pixels.shape[:-1])
+
+
+def _exterior_white_mask(pixels: np.ndarray) -> np.ndarray:
+    """Find near-white pixels connected to the outside edge of the image."""
+    rgb = pixels[..., :3].astype(np.int16)
+    alpha = pixels[..., 3]
+    candidate = (
+        (alpha >= 64)
+        & (np.min(rgb, axis=2) >= 230)
+        & ((np.max(rgb, axis=2) - np.min(rgb, axis=2)) <= 28)
+    )
+    rows, columns = candidate.shape
+    exterior = np.zeros_like(candidate)
+    queue: deque[tuple[int, int]] = deque()
+
+    for column in range(columns):
+        if candidate[0, column]:
+            queue.append((0, column))
+        if rows > 1 and candidate[rows - 1, column]:
+            queue.append((rows - 1, column))
+    for row in range(1, rows - 1):
+        if candidate[row, 0]:
+            queue.append((row, 0))
+        if columns > 1 and candidate[row, columns - 1]:
+            queue.append((row, columns - 1))
+
+    while queue:
+        row, column = queue.popleft()
+        if exterior[row, column] or not candidate[row, column]:
+            continue
+        exterior[row, column] = True
+        if row > 0:
+            queue.append((row - 1, column))
+        if row + 1 < rows:
+            queue.append((row + 1, column))
+        if column > 0:
+            queue.append((row, column - 1))
+        if column + 1 < columns:
+            queue.append((row, column + 1))
+    return exterior
 
 
 def _text_colour(rgb: tuple[int, int, int]) -> str:
@@ -81,6 +121,7 @@ def generate_pattern(image: Image.Image, width: int, height: int) -> tuple[bytes
     pixels = np.asarray(resized)
     palette = BEAD_PALETTE
     opaque = pixels[..., 3] >= 64
+    opaque &= ~_exterior_white_mask(pixels)
     if not np.any(opaque):
         raise ValueError("抠图结果中没有可用的前景")
     indices = np.full((height, width), -1, dtype=np.int16)

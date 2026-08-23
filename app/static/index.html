@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css?v=0.3.0">
+  <link rel="stylesheet" href="/static/style.css?v=0.3.1">
 </head>
 <body>
   <main>
@@ -12,7 +12,7 @@
       <div class="topline">
         <span class="eyebrow">BEAD STUDIO · MARD 2.6 MM</span>
         <div class="version-actions">
-          <span class="version-badge">当前版本 v<span id="app-version">0.3.0</span></span>
+          <span class="version-badge">当前版本 v<span id="app-version">0.3.1</span></span>
           <button id="clear-cache" class="cache-button" type="button">清除缓存并刷新</button>
         </div>
       </div>
@@ -23,13 +23,13 @@
     <aside class="release-card" aria-labelledby="release-title">
       <div>
         <span class="release-label">NEW RELEASE</span>
-        <h2 id="release-title">v0.3.0 更新内容</h2>
+        <h2 id="release-title">v0.3.1 更新内容</h2>
       </div>
       <ul id="version-changes">
-        <li>新增一键清除页面缓存并刷新</li>
-        <li>页面资源不再缓存，更新容器后立即显示新版</li>
-        <li>新增固定版本号和版本更新说明</li>
-        <li>包含板型选项、MARD 221 色匹配和文字抠图</li>
+        <li>智能抠图描述改为可选</li>
+        <li>描述留空时点击智能抠图会直接采用原图</li>
+        <li>自动忽略与图片边缘连通的近白色背景，不再标成 H2</li>
+        <li>主体内部独立的白色仍会保留并匹配色号</li>
       </ul>
     </aside>
 
@@ -45,10 +45,10 @@
         <div class="cutout-controls">
           <label for="cutout-prompt">想保留什么？</label>
           <div class="inline-form">
-            <input id="cutout-prompt" type="text" maxlength="100" placeholder="例如：人物、红色汽车、白色的猫">
+            <input id="cutout-prompt" type="text" maxlength="100" placeholder="可选，例如：人物、红色汽车、白色的猫">
             <button id="cutout" class="secondary" type="button">智能抠图</button>
           </div>
-          <small>英文描述效果通常更稳定。首次抠图会下载识别模型，之后由浏览器缓存。</small>
+          <small>描述可不填，留空会直接采用原图；填写后执行智能抠图，英文描述效果通常更稳定。</small>
           <p id="cutout-message" class="status" role="status"></p>
         </div>
       </section>
@@ -85,6 +85,6 @@
       </div>
     </section>
   </main>
-  <script type="module" src="/static/app.js?v=0.3.0"></script>
+  <script type="module" src="/static/app.js?v=0.3.1"></script>
 </body>
 </html>

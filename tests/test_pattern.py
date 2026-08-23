@@ -25,3 +25,14 @@ def test_transparent_pixels_are_empty_cells():
 def test_mard_classic_palette_contains_221_colours():
     assert len(BEAD_PALETTE) == 221
     assert len({item["code"] for item in BEAD_PALETTE}) == 221
+
+
+def test_exterior_white_is_empty_but_enclosed_white_is_kept():
+    image = Image.new("RGB", (9, 9), "white")
+    for y in range(2, 7):
+        for x in range(2, 7):
+            image.putpixel((x, y), (30, 30, 30))
+    image.putpixel((4, 4), (255, 255, 255))
+    output, summary = generate_pattern(image, 9, 9)
+    assert output.startswith(b"\x89PNG")
+    assert sum(item["count"] for item in summary) == 25
