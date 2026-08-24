@@ -1,0 +1,88 @@
+.api-log-panel {
+  margin-top: 26px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.api-log-heading,
+.api-log-entry-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.api-log-heading h3 {
+  margin: 5px 0 0;
+  font: 700 20px/1.2 Georgia, "Songti SC", serif;
+}
+.api-log-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.api-log-actions button {
+  padding: 8px 11px;
+  font-size: 12px;
+}
+.api-log-list {
+  display: grid;
+  gap: 10px;
+  max-height: 390px;
+  margin-top: 12px;
+  overflow: auto;
+}
+.api-log-entry {
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid #a53b30;
+  border-radius: 10px;
+  background: #fff;
+}
+.api-log-entry.success {
+  border-left-color: #2d7b50;
+}
+.api-log-entry-heading strong {
+  color: #a53b30;
+}
+.api-log-entry.success .api-log-entry-heading strong {
+  color: #2d7b50;
+}
+.api-log-entry-heading time,
+.api-log-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+.api-log-entry dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 16px;
+  margin: 11px 0 0;
+}
+.api-log-entry dl div {
+  min-width: 0;
+}
+.api-log-entry dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.api-log-entry dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.api-log-empty {
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+}
+@media (max-width: 620px) {
+  .api-log-heading,
+  .api-log-entry-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .api-log-entry dl {
+    grid-template-columns: 1fr;
+  }
+}

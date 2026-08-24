@@ -6,11 +6,13 @@ import pytest
 from PIL import Image
 
 from app.ai import AIServiceError, ai_configured, image_model, remove_background
+from app.api_logs import list_api_calls
 
 
 @pytest.fixture(autouse=True)
 def isolated_settings(monkeypatch, tmp_path):
     monkeypatch.setenv("API_SETTINGS_FILE", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("API_CALL_LOG_FILE", str(tmp_path / "api-calls.jsonl"))
 
 
 def test_ai_is_optional(monkeypatch):
@@ -70,6 +72,13 @@ def test_ai_call_is_server_side_and_returns_decoded_png(monkeypatch):
     result_image = Image.open(BytesIO(result)).convert("RGBA")
     assert result_image.getpixel((0, 0)) == (12, 34, 56, 0)
     assert result_image.getpixel((1, 0)) == (12, 34, 56, 255)
+    log = list_api_calls()[0]
+    assert log["dispatched"] is True
+    assert log["success"] is True
+    assert log["model"] == "gpt-image-2"
+    assert log["endpoint"] == "https://api.openai.com/v1/images/edits"
+    assert "api_key" not in log
+    assert "image" not in log
 
 
 def test_ai_call_requires_server_key(monkeypatch):

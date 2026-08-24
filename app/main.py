@@ -12,6 +12,7 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 from .ai import AIServiceError, ai_configured, image_model, remove_background
+from .api_logs import clear_api_calls, list_api_calls
 from .palette import BEAD_PALETTE
 from .pattern import generate_pattern
 from .settings import (
@@ -27,13 +28,13 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 VERSION_CHANGES = [
-    "新增 8 倍过采样分块取色，抑制缩放产生的灰边和伪颜色",
-    "改用透明度感知的主色中位数，避免背景颜色污染主体边缘",
-    "中性色只匹配中性色卡，避免灰色误配成偏棕或偏绿色号",
-    "优先保留细黑轮廓，并自动合并抗锯齿和 WebP 压缩过渡色",
-    "颜色仍可在图纸上逐格手动修正、留空和撤销",
+    "新增受管理密码保护的真实 Image API 调用日志页面",
+    "显示模型、接口、HTTP 状态、耗时、请求 ID 与成功或失败原因",
+    "日志不会保存 API Key、Authorization、原图、返回图片或完整提示词",
+    "修复 API 设置首次保存后无法继续修改并再次保存的问题",
+    "测试连接可读取接口真实模型列表，并优先建议 GPT Image 编辑模型",
 ]
 
 BOARD_SPECS = {
@@ -160,7 +161,10 @@ def update_api_settings(
     try:
         settings = _settings_from_payload(payload)
         save_settings(settings)
-        return {**public_settings(settings), "message": "API 设置已保存"}
+        saved = load_settings()
+        if saved != settings:
+            raise SettingsError("API 设置写入后校验失败，请检查 /data 数据卷")
+        return {**public_settings(saved), "message": "API 设置已保存并校验"}
     except SettingsError as error:
         raise HTTPException(400, str(error)) from None
 
@@ -180,6 +184,22 @@ def delete_api_key(x_settings_password: str | None = Header(default=None)) -> di
         return {**public_settings(settings), "message": "已删除保存的 API Key"}
     except SettingsError as error:
         raise HTTPException(400, str(error)) from None
+
+
+@app.get("/api/settings/logs")
+def get_api_call_logs(
+    limit: int = 100,
+    x_settings_password: str | None = Header(default=None),
+) -> dict:
+    _authorize_settings(x_settings_password)
+    return {"logs": list_api_calls(limit)}
+
+
+@app.delete("/api/settings/logs")
+def delete_api_call_logs(x_settings_password: str | None = Header(default=None)) -> dict:
+    _authorize_settings(x_settings_password)
+    clear_api_calls()
+    return {"message": "API 调用日志已清空"}
 
 
 @app.post("/api/settings/test")

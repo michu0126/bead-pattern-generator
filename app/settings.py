@@ -171,8 +171,17 @@ async def test_api_connection(settings: AISettings) -> dict:
         raise SettingsError(f"API 验证失败：{detail}")
     try:
         body = response.json()
-        model_count = len(body.get("data", [])) if isinstance(body, dict) else 0
+        raw_models = body.get("data", []) if isinstance(body, dict) else []
+        models = sorted({
+            str(item.get("id", "")).strip()
+            for item in raw_models
+            if isinstance(item, dict) and str(item.get("id", "")).strip()
+        })
     except ValueError:
-        model_count = 0
-    return {"ok": True, "message": f"连接成功，/models 返回 {model_count} 个模型"}
+        models = []
+    return {
+        "ok": True,
+        "message": f"连接成功，/models 返回 {len(models)} 个模型",
+        "models": models,
+    }
 

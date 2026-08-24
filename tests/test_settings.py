@@ -86,3 +86,43 @@ def test_connection_uses_models_endpoint_and_bearer_key(monkeypatch):
     )))
     assert result["ok"] is True
     assert "1 个模型" in result["message"]
+
+
+def test_connection_returns_model_ids(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "gpt-image-2"},
+                    {"id": "gpt-5"},
+                    {"id": "gpt-image-2"},
+                    {"missing": "id"},
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, *, headers):
+            return FakeResponse()
+
+    import asyncio
+    from app.settings import AISettings, test_api_connection
+
+    monkeypatch.setattr("app.settings.httpx.AsyncClient", FakeClient)
+    result = asyncio.run(test_api_connection(AISettings(
+        api_url="https://provider.example/v1",
+        api_key="secret",
+        model="gpt-image-2",
+        quality="high",
+    )))
+    assert result["models"] == ["gpt-5", "gpt-image-2"]

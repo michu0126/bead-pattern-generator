@@ -99,19 +99,44 @@ function apiErrorMessage(data, fallback) {
 }
 
 async function settingsRequest(path, options = {}) {
-  const response = await fetch(path, {
-    cache: 'no-store',
-    ...options,
-    headers: {
-      'X-Settings-Password': settingsPassword(),
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(options.headers || {}),
-    },
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(path, {
+      cache: 'no-store',
+      ...options,
+      signal: options.signal || controller.signal,
+      headers: {
+        'X-Settings-Password': settingsPassword(),
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    let data = {};
+    try { data = await response.json(); } catch (_) { /* 使用下面的通用错误。 */ }
+    if (!response.ok) throw new Error(apiErrorMessage(data, `请求失败（${response.status}）`));
+    return data;
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('请求超过 30 秒，请检查容器状态后重试。');
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function recommendedImageEditModel(models) {
+  const priorities = ['gpt-image-2', 'gpt-image-1.5', 'gpt-image-1', 'gpt-image-1-mini'];
+  return priorities.find(name => models.includes(name)) || null;
+}
+
+function fillModelChoices(models) {
+  const datalist = $('#api-model-list');
+  datalist.replaceChildren();
+  models.forEach(model => {
+    const option = document.createElement('option');
+    option.value = model;
+    datalist.append(option);
   });
-  let data = {};
-  try { data = await response.json(); } catch (_) { /* 使用下面的通用错误。 */ }
-  if (!response.ok) throw new Error(apiErrorMessage(data, `请求失败（${response.status}）`));
-  return data;
 }
 
 function fillAPISettings(data) {
@@ -164,7 +189,12 @@ $('#test-api-settings').addEventListener('click', async event => {
     const data = await settingsRequest('/api/settings/test', {
       method: 'POST', body: JSON.stringify(settingsPayload()),
     });
-    settingsMessage.textContent = data.message;
+    const models = Array.isArray(data.models) ? data.models : [];
+    fillModelChoices(models);
+    const recommended = recommendedImageEditModel(models);
+    settingsMessage.textContent = recommended
+      ? `${data.message}；当前图像编辑建议使用 ${recommended}。`
+      : `${data.message}；未找到已知的 GPT Image 编辑模型。`;
   } catch (error) {
     settingsMessage.textContent = error.message;
   } finally {
@@ -181,13 +211,22 @@ $('#save-api-settings').addEventListener('click', async event => {
       method: 'PUT', body: JSON.stringify(settingsPayload()),
     });
     fillAPISettings(data);
-    settingsMessage.textContent = 'API 设置已保存，云端识图选项已刷新。';
-    await loadConfig();
+    settingsMessage.textContent = 'API 设置已保存并从磁盘重新读取校验，可以继续修改后再次保存。';
+    void loadConfig();
   } catch (error) {
     settingsMessage.textContent = error.message;
   } finally {
     event.currentTarget.disabled = false;
   }
+});
+
+['#api-url', '#api-key', '#api-model', '#api-quality'].forEach(selector => {
+  const field = $(selector);
+  const eventName = field.tagName === 'SELECT' ? 'change' : 'input';
+  field.addEventListener(eventName, () => {
+    $('#save-api-settings').disabled = false;
+    settingsMessage.textContent = '设置已修改，点击“保存设置”应用新值。';
+  });
 });
 
 $('#clear-api-key').addEventListener('click', async event => {
