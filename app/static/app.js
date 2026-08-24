@@ -1,3 +1,5 @@
+import { editGridCell, locateGridCell, summarizeGrid } from './editor-core.mjs';
+
 const $ = selector => document.querySelector(selector);
 const fileInput = $('#file');
 const dropZone = $('#drop-zone');
@@ -9,9 +11,14 @@ const cutoutPrompt = $('#cutout-prompt');
 const cutoutMessage = $('#cutout-message');
 const cutoutResult = $('#cutout-result');
 const cutoutPreview = $('#cutout-preview');
+const recognitionMode = $('#recognition-mode');
 const generateButton = $('#generate');
 const message = $('#message');
 const clearCacheButton = $('#clear-cache');
+const settingsDialog = $('#api-settings-dialog');
+const settingsMessage = $('#api-settings-message');
+const canvas = $('#pattern-editor');
+const context = canvas.getContext('2d');
 
 let sourceBlob = null;
 let workingBlob = null;
@@ -19,6 +26,12 @@ let proposedCutout = null;
 let sourceUrl = null;
 let cutoutUrl = null;
 let clipsegPromise = null;
+let patternGrid = [];
+let availableColours = [];
+let colourByCode = new Map();
+let selectedCell = null;
+let editHistory = [];
+let editorCellSize = 24;
 
 const BOARD_FALLBACK = [
   { id: '50x50', label: '50 × 50（2.6 mm 标准单板）' },
@@ -42,6 +55,157 @@ async function loadVersion() {
   }
 }
 
+async function loadConfig() {
+  try {
+    const response = await fetch('/api/config', { cache: 'no-store' });
+    if (!response.ok) throw new Error();
+    const data = await response.json();
+    const option = recognitionMode.querySelector('option[value="openai"]');
+    if (data.ai_enabled) {
+      option.disabled = false;
+      option.textContent = `${data.ai_model}（OpenAI 兼容 API）`;
+      $('#ai-status').textContent = '选择云端模式会把当前图片发送到已配置的 API，并可能产生费用。';
+    } else {
+      option.disabled = true;
+      option.textContent = 'OpenAI 兼容 API（未配置）';
+      if (recognitionMode.value === 'openai') recognitionMode.value = 'local';
+      $('#ai-status').textContent = data.settings_enabled
+        ? '尚未保存 API Key，请打开页面顶部的“API 设置”。'
+        : '容器尚未设置 SETTINGS_PASSWORD，API 设置页面处于锁定状态。';
+    }
+  } catch (_) {
+    $('#ai-status').textContent = '无法读取 AI 配置，本地识图仍可正常使用。';
+  }
+}
+
+function settingsPassword() {
+  return $('#settings-password').value;
+}
+
+function settingsPayload() {
+  const key = $('#api-key').value.trim();
+  return {
+    api_url: $('#api-url').value.trim(),
+    model: $('#api-model').value.trim(),
+    quality: $('#api-quality').value,
+    ...(key ? { api_key: key } : {}),
+  };
+}
+
+function apiErrorMessage(data, fallback) {
+  if (typeof data?.detail === 'string') return data.detail;
+  if (Array.isArray(data?.detail)) return data.detail.map(item => item.msg).join('；');
+  return fallback;
+}
+
+async function settingsRequest(path, options = {}) {
+  const response = await fetch(path, {
+    cache: 'no-store',
+    ...options,
+    headers: {
+      'X-Settings-Password': settingsPassword(),
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  let data = {};
+  try { data = await response.json(); } catch (_) { /* 使用下面的通用错误。 */ }
+  if (!response.ok) throw new Error(apiErrorMessage(data, `请求失败（${response.status}）`));
+  return data;
+}
+
+function fillAPISettings(data) {
+  $('#api-url').value = data.api_url;
+  $('#api-model').value = data.model;
+  $('#api-quality').value = data.quality;
+  $('#api-key').value = '';
+  $('#api-key-state').textContent = data.has_api_key
+    ? '已保存密钥；输入新值可替换，留空会保留。'
+    : '当前未保存 API Key。';
+}
+
+async function loadAPISettings() {
+  if (!settingsPassword()) throw new Error('请先输入设置管理密码。');
+  const data = await settingsRequest('/api/settings');
+  fillAPISettings(data);
+  return data;
+}
+
+$('#open-api-settings').addEventListener('click', () => {
+  settingsMessage.textContent = '输入管理密码后，可读取、测试或保存接口设置。';
+  if (typeof settingsDialog.showModal === 'function') settingsDialog.showModal();
+  else settingsDialog.setAttribute('open', '');
+  $('#settings-password').focus();
+});
+
+$('#close-api-settings').addEventListener('click', () => settingsDialog.close());
+settingsDialog.addEventListener('click', event => {
+  if (event.target === settingsDialog) settingsDialog.close();
+});
+
+$('#load-api-settings').addEventListener('click', async event => {
+  event.currentTarget.disabled = true;
+  settingsMessage.textContent = '正在读取…';
+  try {
+    await loadAPISettings();
+    settingsMessage.textContent = '已读取当前设置；API Key 不会显示。';
+  } catch (error) {
+    settingsMessage.textContent = error.message;
+  } finally {
+    event.currentTarget.disabled = false;
+  }
+});
+
+$('#test-api-settings').addEventListener('click', async event => {
+  if (!settingsPassword()) { settingsMessage.textContent = '请先输入设置管理密码。'; return; }
+  event.currentTarget.disabled = true;
+  settingsMessage.textContent = '正在请求兼容接口的 /models…';
+  try {
+    const data = await settingsRequest('/api/settings/test', {
+      method: 'POST', body: JSON.stringify(settingsPayload()),
+    });
+    settingsMessage.textContent = data.message;
+  } catch (error) {
+    settingsMessage.textContent = error.message;
+  } finally {
+    event.currentTarget.disabled = false;
+  }
+});
+
+$('#save-api-settings').addEventListener('click', async event => {
+  if (!settingsPassword()) { settingsMessage.textContent = '请先输入设置管理密码。'; return; }
+  event.currentTarget.disabled = true;
+  settingsMessage.textContent = '正在保存…';
+  try {
+    const data = await settingsRequest('/api/settings', {
+      method: 'PUT', body: JSON.stringify(settingsPayload()),
+    });
+    fillAPISettings(data);
+    settingsMessage.textContent = 'API 设置已保存，云端识图选项已刷新。';
+    await loadConfig();
+  } catch (error) {
+    settingsMessage.textContent = error.message;
+  } finally {
+    event.currentTarget.disabled = false;
+  }
+});
+
+$('#clear-api-key').addEventListener('click', async event => {
+  if (!settingsPassword()) { settingsMessage.textContent = '请先输入设置管理密码。'; return; }
+  if (!window.confirm('确定删除容器中保存的 API Key 吗？云端识图会立即停用。')) return;
+  event.currentTarget.disabled = true;
+  try {
+    const data = await settingsRequest('/api/settings/key', { method: 'DELETE' });
+    fillAPISettings(data);
+    settingsMessage.textContent = data.message;
+    await loadConfig();
+  } catch (error) {
+    settingsMessage.textContent = error.message;
+  } finally {
+    event.currentTarget.disabled = false;
+  }
+});
+
 clearCacheButton.addEventListener('click', async () => {
   clearCacheButton.disabled = true;
   clearCacheButton.textContent = '正在清除…';
@@ -52,8 +216,7 @@ clearCacheButton.addEventListener('click', async () => {
       await Promise.all(names.map(name => caches.delete(name)));
     }
   } finally {
-    const separator = location.pathname.includes('?') ? '&' : '?';
-    location.replace(`${location.pathname}${separator}refresh=${Date.now()}`);
+    location.replace(`${location.pathname}?refresh=${Date.now()}`);
   }
 });
 
@@ -108,6 +271,12 @@ fileInput.addEventListener('change', () => selectFile(fileInput.files[0]));
   dropZone.classList.remove('drag');
 }));
 dropZone.addEventListener('drop', event => selectFile(event.dataTransfer.files[0]));
+
+recognitionMode.addEventListener('change', () => {
+  $('#ai-status').textContent = recognitionMode.value === 'openai'
+    ? '当前图片将在点击智能抠图后发送到已配置的兼容 API，并可能产生费用。'
+    : '本地模式在浏览器内运行，图片不会发送到第三方。';
+});
 
 function promptForModel(text) {
   const replacements = [
@@ -166,18 +335,54 @@ async function maskToPng(blob, logits) {
   }
   maskContext.putImageData(maskImage, 0, 0);
 
-  const canvas = document.createElement('canvas');
-  canvas.width = original.naturalWidth;
-  canvas.height = original.naturalHeight;
-  const context = canvas.getContext('2d');
-  context.drawImage(original, 0, 0);
-  context.globalCompositeOperation = 'destination-in';
-  context.imageSmoothingEnabled = true;
-  context.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve, reject) => canvas.toBlob(
+  const resultCanvas = document.createElement('canvas');
+  resultCanvas.width = original.naturalWidth;
+  resultCanvas.height = original.naturalHeight;
+  const resultContext = resultCanvas.getContext('2d');
+  resultContext.drawImage(original, 0, 0);
+  resultContext.globalCompositeOperation = 'destination-in';
+  resultContext.imageSmoothingEnabled = true;
+  resultContext.drawImage(maskCanvas, 0, 0, resultCanvas.width, resultCanvas.height);
+  return new Promise((resolve, reject) => resultCanvas.toBlob(
     value => value ? resolve(value) : reject(new Error('抠图结果生成失败')),
     'image/png',
   ));
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const response = await fetch(dataUrl);
+  return response.blob();
+}
+
+function showCutoutResult(blob, description) {
+  proposedCutout = blob;
+  clearObjectUrl(cutoutUrl);
+  cutoutUrl = URL.createObjectURL(blob);
+  cutoutPreview.src = cutoutUrl;
+  cutoutResult.classList.remove('hidden');
+  cutoutMessage.textContent = description;
+  cutoutResult.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function runOpenAICutout() {
+  const form = new FormData();
+  form.append('image', sourceBlob, sourceBlob.type === 'image/png' ? 'image.png' : 'image.jpg');
+  form.append('prompt', cutoutPrompt.value.trim());
+  const response = await fetch('/api/ai/cutout', { method: 'POST', body: form });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || '云端识图失败');
+  showCutoutResult(await dataUrlToBlob(data.image), `${data.model} 识图完成，请确认结果。`);
+}
+
+async function runLocalCutout() {
+  const { RawImage, tokenizer, processor, model } = await getClipseg();
+  const inputUrl = URL.createObjectURL(sourceBlob);
+  let rawImage;
+  try { rawImage = await RawImage.read(inputUrl); } finally { URL.revokeObjectURL(inputUrl); }
+  const textInputs = tokenizer([promptForModel(cutoutPrompt.value)], { padding: true, truncation: true });
+  const imageInputs = await processor(rawImage);
+  const { logits } = await model({ ...textInputs, ...imageInputs });
+  showCutoutResult(await maskToPng(sourceBlob, logits), '本地识图完成，请确认结果。');
 }
 
 cutoutButton.addEventListener('click', async () => {
@@ -191,24 +396,14 @@ cutoutButton.addEventListener('click', async () => {
     return;
   }
   cutoutButton.disabled = true;
-  cutoutMessage.textContent = '正在准备识别模型并抠图，首次使用可能需要几分钟…';
+  cutoutMessage.textContent = recognitionMode.value === 'openai'
+    ? '正在通过已配置的兼容 API 识别并分离主体，请稍候…'
+    : '正在准备本地识别模型，首次使用可能需要几分钟…';
   try {
-    const { RawImage, tokenizer, processor, model } = await getClipseg();
-    const inputUrl = URL.createObjectURL(sourceBlob);
-    let rawImage;
-    try { rawImage = await RawImage.read(inputUrl); } finally { URL.revokeObjectURL(inputUrl); }
-    const textInputs = tokenizer([promptForModel(cutoutPrompt.value)], { padding: true, truncation: true });
-    const imageInputs = await processor(rawImage);
-    const { logits } = await model({ ...textInputs, ...imageInputs });
-    proposedCutout = await maskToPng(sourceBlob, logits);
-    clearObjectUrl(cutoutUrl);
-    cutoutUrl = URL.createObjectURL(proposedCutout);
-    cutoutPreview.src = cutoutUrl;
-    cutoutResult.classList.remove('hidden');
-    cutoutMessage.textContent = '抠图完成，请查看结果后选择采用或弃用。';
-    cutoutResult.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (recognitionMode.value === 'openai') await runOpenAICutout();
+    else await runLocalCutout();
   } catch (error) {
-    clipsegPromise = null;
+    if (recognitionMode.value === 'local') clipsegPromise = null;
     cutoutMessage.textContent = `抠图失败：${error.message || '请检查网络后重试'}`;
   } finally {
     cutoutButton.disabled = false;
@@ -231,6 +426,137 @@ $('#discard-cutout').addEventListener('click', () => {
   message.textContent = '正在使用原图。';
 });
 
+function textColour(rgb) {
+  const luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+  return luminance > 145 ? '#111111' : '#ffffff';
+}
+
+function drawPattern() {
+  if (!patternGrid.length) return;
+  const rows = patternGrid.length;
+  const columns = patternGrid[0].length;
+  editorCellSize = Math.max(20, Math.min(36, Math.floor(1800 / columns)));
+  const margin = 2;
+  canvas.width = columns * editorCellSize + margin * 2;
+  canvas.height = rows * editorCellSize + margin * 2;
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.font = `700 ${Math.max(9, Math.floor(editorCellSize / 3))}px Arial, sans-serif`;
+
+  patternGrid.forEach((row, rowIndex) => row.forEach((code, columnIndex) => {
+    const x = margin + columnIndex * editorCellSize;
+    const y = margin + rowIndex * editorCellSize;
+    const colour = code ? colourByCode.get(code) : null;
+    context.fillStyle = colour ? `rgb(${colour.rgb.join(',')})` : '#fafafa';
+    context.fillRect(x, y, editorCellSize, editorCellSize);
+    context.strokeStyle = '#77716a';
+    context.lineWidth = 1;
+    context.strokeRect(x + 0.5, y + 0.5, editorCellSize - 1, editorCellSize - 1);
+    if (colour) {
+      context.fillStyle = textColour(colour.rgb);
+      context.fillText(code, x + editorCellSize / 2, y + editorCellSize / 2);
+    }
+  }));
+
+  if (selectedCell) {
+    const x = margin + selectedCell.column * editorCellSize;
+    const y = margin + selectedCell.row * editorCellSize;
+    context.strokeStyle = '#ffcf33';
+    context.lineWidth = 4;
+    context.strokeRect(x + 2, y + 2, editorCellSize - 4, editorCellSize - 4);
+  }
+  $('#download').href = canvas.toDataURL('image/png');
+}
+
+function refreshMaterials() {
+  const { counts, total, rows, columns, empty } = summarizeGrid(patternGrid);
+  $('#total').textContent = `${columns} × ${rows} · ${total} 颗${empty ? ` · ${empty} 格留空` : ''}`;
+  const items = [...counts.entries()]
+    .map(([code, count]) => ({ ...colourByCode.get(code), count }))
+    .sort((a, b) => b.count - a.count);
+  $('#palette').innerHTML = items.map(item => `
+    <div class="swatch-row">
+      <span class="swatch" style="background:rgb(${item.rgb.join(',')})"></span>
+      <span><strong>${item.code}</strong><small>MARD 2.6 mm</small></span>
+      <strong>${item.count} 颗</strong>
+    </div>`).join('');
+}
+
+function updatePixelPanel() {
+  if (!selectedCell) {
+    $('#pixel-editor').classList.add('hidden');
+    return;
+  }
+  const code = patternGrid[selectedCell.row][selectedCell.column];
+  const colour = code ? colourByCode.get(code) : null;
+  $('#pixel-position').textContent = `第 ${selectedCell.row + 1} 行 · 第 ${selectedCell.column + 1} 列`;
+  $('#pixel-current').textContent = colour ? `当前：${code}` : '当前：空白';
+  $('#pixel-preview').style.background = colour ? `rgb(${colour.rgb.join(',')})` : 'transparent';
+  $('#pixel-colour').value = code || '';
+  $('#pixel-editor').classList.remove('hidden');
+}
+
+function initializeEditor(data) {
+  patternGrid = data.grid.map(row => [...row]);
+  availableColours = data.colours;
+  colourByCode = new Map(availableColours.map(item => [item.code, item]));
+  selectedCell = null;
+  editHistory = [];
+  $('#pixel-colour').innerHTML = [
+    '<option value="">空白（不放豆）</option>',
+    ...availableColours.map(item => `<option value="${item.code}">${item.code} · ${item.name}</option>`),
+  ].join('');
+  $('#pattern').classList.add('hidden');
+  canvas.classList.remove('hidden');
+  drawPattern();
+  refreshMaterials();
+}
+
+canvas.addEventListener('click', event => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const { row, column } = locateGridCell({
+    clientX: event.clientX,
+    clientY: event.clientY,
+    left: rect.left,
+    top: rect.top,
+    scaleX,
+    scaleY,
+    margin: 2,
+    cellSize: editorCellSize,
+  });
+  if (row < 0 || column < 0 || row >= patternGrid.length || column >= patternGrid[0].length) return;
+  selectedCell = { row, column };
+  drawPattern();
+  updatePixelPanel();
+});
+
+function setSelectedPixel(code) {
+  if (!selectedCell) return;
+  const oldCode = patternGrid[selectedCell.row][selectedCell.column];
+  if (oldCode === code) return;
+  editHistory.push({ ...selectedCell, oldCode, newCode: code });
+  editGridCell(patternGrid, selectedCell.row, selectedCell.column, code);
+  drawPattern();
+  refreshMaterials();
+  updatePixelPanel();
+}
+
+$('#apply-pixel').addEventListener('click', () => setSelectedPixel($('#pixel-colour').value || null));
+$('#clear-pixel').addEventListener('click', () => setSelectedPixel(null));
+$('#undo-pixel').addEventListener('click', () => {
+  const edit = editHistory.pop();
+  if (!edit) return;
+  editGridCell(patternGrid, edit.row, edit.column, edit.oldCode);
+  selectedCell = { row: edit.row, column: edit.column };
+  drawPattern();
+  refreshMaterials();
+  updatePixelPanel();
+});
+
 generateButton.addEventListener('click', async () => {
   if (!workingBlob) { message.textContent = '请先选择一张图片。'; return; }
   const form = new FormData();
@@ -242,18 +568,15 @@ generateButton.addEventListener('click', async () => {
     const response = await fetch('/api/generate', { method: 'POST', body: form });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || '生成失败');
-    $('#pattern').src = data.image;
-    $('#download').href = data.image;
-    const emptyText = data.empty ? ` · ${data.empty} 格留空` : '';
-    $('#total').textContent = `${data.width} × ${data.height} · ${data.total} 颗${emptyText}`;
-    $('#palette').innerHTML = data.palette.map(item => `
-      <div class="swatch-row">
-        <span class="swatch" style="background:rgb(${item.rgb.join(',')})"></span>
-        <span><strong>${item.code}</strong><small>MARD 2.6 mm</small></span>
-        <strong>${item.count} 颗</strong>
-      </div>`).join('');
+    if (data.grid && data.colours) initializeEditor(data);
+    else {
+      $('#pattern').src = data.image;
+      $('#download').href = data.image;
+      $('#pattern').classList.remove('hidden');
+      canvas.classList.add('hidden');
+    }
     $('#result').classList.remove('hidden');
-    message.textContent = `生成完成，共使用 ${data.palette.length} 个 MARD 色号。`;
+    message.textContent = `生成完成，共使用 ${data.palette.length} 个 MARD 色号，可点击格子手动修正。`;
     $('#result').scrollIntoView({ behavior: 'smooth' });
   } catch (error) {
     message.textContent = error.message;
@@ -263,4 +586,5 @@ generateButton.addEventListener('click', async () => {
 });
 
 loadVersion();
+loadConfig();
 loadBoards();

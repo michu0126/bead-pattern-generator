@@ -116,7 +116,7 @@ def _render_pattern(indices: np.ndarray, palette: list[dict]) -> bytes:
     return output.getvalue()
 
 
-def generate_pattern(image: Image.Image, width: int, height: int) -> tuple[bytes, list[dict]]:
+def generate_pattern(image: Image.Image, width: int, height: int) -> tuple[bytes, list[dict], list[list[str | None]]]:
     resized = _fit_image(image, width, height)
     pixels = np.asarray(resized)
     palette = BEAD_PALETTE
@@ -138,4 +138,8 @@ def generate_pattern(image: Image.Image, width: int, height: int) -> tuple[bytes
         if counts.get(index, 0) > 0
     ]
     summary.sort(key=lambda item: item["count"], reverse=True)
-    return _render_pattern(indices, palette), summary
+    grid = [
+        [palette[int(index)]["code"] if int(index) >= 0 else None for index in row]
+        for row in indices
+    ]
+    return _render_pattern(indices, palette), summary, grid

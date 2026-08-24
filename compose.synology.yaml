@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  bead-pattern:
+    image: michu0126/bead-pattern-generator:latest
+    container_name: bead-pattern-generator
+    restart: unless-stopped
+    ports:
+      - "18026:18026"
+    environment:
+      TZ: Asia/Shanghai
+      # 首次部署时必须在群晖中改成你自己的强密码；留空会锁定 API 设置页。
+      SETTINGS_PASSWORD: ""
+    volumes:
+      # 保存兼容 API 的 URL、模型与密钥，更新容器后不会丢失。
+      - bead-pattern-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  bead-pattern-data:

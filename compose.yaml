@@ -5,6 +5,11 @@ services:
     ports:
       - "18026:18026"
     restart: unless-stopped
+    environment:
+      # 设置后才能从网页管理兼容 API；请改成自己的强密码。
+      SETTINGS_PASSWORD: ""
+    volumes:
+      - bead-pattern-data:/data
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -14,3 +19,6 @@ services:
       resources:
         limits:
           memory: 768M
+
+volumes:
+  bead-pattern-data:

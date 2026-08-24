@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css?v=0.3.1">
+  <link rel="stylesheet" href="/static/style.css?v=0.4.0">
 </head>
 <body>
   <main>
@@ -12,7 +12,8 @@
       <div class="topline">
         <span class="eyebrow">BEAD STUDIO · MARD 2.6 MM</span>
         <div class="version-actions">
-          <span class="version-badge">当前版本 v<span id="app-version">0.3.1</span></span>
+          <span class="version-badge">当前版本 v<span id="app-version">0.4.0</span></span>
+          <button id="open-api-settings" class="cache-button" type="button">API 设置</button>
           <button id="clear-cache" class="cache-button" type="button">清除缓存并刷新</button>
         </div>
       </div>
@@ -20,16 +21,62 @@
       <p>自动匹配 MARD 2.6 mm 色卡，每个格子都标注色号。也可以先用一句话抠出主体，再决定是否采用。</p>
     </header>
 
+    <dialog id="api-settings-dialog" class="settings-dialog">
+      <section class="settings-panel" aria-labelledby="api-settings-title">
+        <div class="section-title">
+          <div>
+            <span class="release-label">CONTAINER SETTINGS</span>
+            <h2 id="api-settings-title">OpenAI 兼容 API</h2>
+          </div>
+          <button id="close-api-settings" class="icon-button" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="settings-intro">支持 OpenAI 兼容的图像编辑接口。填写基础 URL（例如 <code>https://api.openai.com/v1</code>）或完整的 <code>/images/edits</code> 地址。</p>
+        <div class="settings-grid">
+          <label for="settings-password">设置管理密码
+            <input id="settings-password" type="password" autocomplete="current-password" placeholder="容器中的 SETTINGS_PASSWORD">
+            <small>只用于本次操作，不保存在浏览器中。</small>
+          </label>
+          <label for="api-url">API URL
+            <input id="api-url" type="url" value="https://api.openai.com/v1" spellcheck="false" autocomplete="url">
+          </label>
+          <label for="api-key">API Key
+            <input id="api-key" type="password" autocomplete="new-password" placeholder="留空则保留已保存的密钥">
+            <small id="api-key-state">尚未读取设置</small>
+          </label>
+          <label for="api-model">图像模型
+            <input id="api-model" type="text" value="gpt-image-2" spellcheck="false">
+          </label>
+          <label for="api-quality">图像质量
+            <select id="api-quality">
+              <option value="low">low</option>
+              <option value="medium" selected>medium</option>
+              <option value="high">high</option>
+              <option value="auto">auto</option>
+            </select>
+          </label>
+        </div>
+        <p class="settings-warning">密钥只会保存到容器的 <code>/data/settings.json</code>，不会返回给页面。请通过 HTTPS 或可信局域网访问设置页。</p>
+        <div class="settings-actions">
+          <button id="load-api-settings" class="ghost" type="button">读取当前设置</button>
+          <button id="test-api-settings" class="ghost" type="button">测试连接</button>
+          <button id="clear-api-key" class="ghost danger" type="button">删除密钥</button>
+          <button id="save-api-settings" type="button">保存设置</button>
+        </div>
+        <p id="api-settings-message" class="status" role="status"></p>
+      </section>
+    </dialog>
+
     <aside class="release-card" aria-labelledby="release-title">
       <div>
         <span class="release-label">NEW RELEASE</span>
-        <h2 id="release-title">v0.3.1 更新内容</h2>
+        <h2 id="release-title">v0.4.0 更新内容</h2>
       </div>
       <ul id="version-changes">
-        <li>智能抠图描述改为可选</li>
-        <li>描述留空时点击智能抠图会直接采用原图</li>
-        <li>自动忽略与图片边缘连通的近白色背景，不再标成 H2</li>
-        <li>主体内部独立的白色仍会保留并匹配色号</li>
+        <li>新增受管理密码保护的 OpenAI 兼容 API 设置页面</li>
+        <li>支持自定义 API URL、API Key、模型与质量并测试连接</li>
+        <li>设置持久化到 /data 数据卷，重建容器后不会丢失</li>
+        <li>新增云端智能抠图并保留原图颜色</li>
+        <li>支持点击单个格子修改 MARD 色号、留空和撤销</li>
       </ul>
     </aside>
 
@@ -43,6 +90,12 @@
       <section id="source-panel" class="source-panel hidden">
         <div class="source-preview checker"><img id="source-preview" alt="原图预览"></div>
         <div class="cutout-controls">
+          <label for="recognition-mode">识图方式</label>
+          <select id="recognition-mode">
+            <option value="local">本地识图（免费，不上传图片）</option>
+            <option value="openai" disabled>OpenAI 兼容 API（未配置）</option>
+          </select>
+          <small id="ai-status">云端模式需要先打开页面顶部的“API 设置”。</small>
           <label for="cutout-prompt">想保留什么？</label>
           <div class="inline-form">
             <input id="cutout-prompt" type="text" maxlength="100" placeholder="可选，例如：人物、红色汽车、白色的猫">
@@ -77,7 +130,24 @@
     <section id="result" class="result hidden">
       <div class="card preview">
         <div class="section-title"><h2>图纸预览</h2><a id="download" download="mard-bead-pattern.png">下载 PNG</a></div>
-        <div class="image-wrap"><img id="pattern" alt="生成的拼豆图纸"></div>
+        <p class="editor-help">点击图纸中的任意格子，可以手动修改色号或设为空白。</p>
+        <div class="image-wrap">
+          <canvas id="pattern-editor" class="hidden" aria-label="可编辑的拼豆图纸"></canvas>
+          <img id="pattern" alt="生成的拼豆图纸">
+        </div>
+        <section id="pixel-editor" class="pixel-editor hidden">
+          <div class="pixel-selection">
+            <span id="pixel-preview" class="pixel-preview"></span>
+            <div><strong id="pixel-position">未选择格子</strong><small id="pixel-current"></small></div>
+          </div>
+          <label for="pixel-colour">修改为</label>
+          <select id="pixel-colour"></select>
+          <div class="pixel-actions">
+            <button id="apply-pixel" type="button">应用修改</button>
+            <button id="clear-pixel" class="ghost" type="button">设为空白</button>
+            <button id="undo-pixel" class="ghost" type="button">撤销上一步</button>
+          </div>
+        </section>
       </div>
       <div class="card summary">
         <div class="section-title"><h2>材料清单</h2><span id="total"></span></div>
@@ -85,6 +155,6 @@
       </div>
     </section>
   </main>
-  <script type="module" src="/static/app.js?v=0.3.1"></script>
+  <script type="module" src="/static/app.js?v=0.4.0"></script>
 </body>
 </html>
