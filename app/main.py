@@ -161,7 +161,10 @@ def update_api_settings(
     try:
         settings = _settings_from_payload(payload)
         save_settings(settings)
-        return {**public_settings(settings), "message": "API 设置已保存"}
+        saved = load_settings()
+        if saved != settings:
+            raise SettingsError("API 设置写入后校验失败，请检查 /data 数据卷")
+        return {**public_settings(saved), "message": "API 设置已保存并校验"}
     except SettingsError as error:
         raise HTTPException(400, str(error)) from None
 

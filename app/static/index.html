@@ -45,7 +45,9 @@
             <small id="api-key-state">尚未读取设置</small>
           </label>
           <label for="api-model">图像模型
-            <input id="api-model" type="text" value="gpt-image-2" spellcheck="false">
+            <input id="api-model" type="text" value="gpt-image-2" list="api-model-list" spellcheck="false">
+            <datalist id="api-model-list"></datalist>
+            <small>“测试连接”后会加载接口实际返回的模型名称。</small>
           </label>
           <label for="api-quality">图像质量
             <select id="api-quality">
