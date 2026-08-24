@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css?v=0.5.0">
-  <link rel="stylesheet" href="/static/logs.css">
+  <link rel="stylesheet" href="/static/style.css?v=0.6.0">
+  <link rel="stylesheet" href="/static/logs.css?v=0.6.0">
 </head>
 <body>
   <main>
@@ -13,7 +13,7 @@
       <div class="topline">
         <span class="eyebrow">BEAD STUDIO · MARD 2.6 MM</span>
         <div class="version-actions">
-          <span class="version-badge">当前版本 v<span id="app-version">0.5.0</span></span>
+          <span class="version-badge">当前版本 v<span id="app-version">0.6.0</span></span>
           <button id="open-api-settings" class="cache-button" type="button">API 设置</button>
           <button id="clear-cache" class="cache-button" type="button">清除缓存并刷新</button>
         </div>
@@ -89,14 +89,14 @@
     <aside class="release-card" aria-labelledby="release-title">
       <div>
         <span class="release-label">NEW RELEASE</span>
-        <h2 id="release-title">v0.5.0 更新内容</h2>
+        <h2 id="release-title">v0.6.0 更新内容</h2>
       </div>
       <ul id="version-changes">
-        <li>新增 8 倍过采样分块取色，减少缩放灰边和伪颜色</li>
-        <li>透明度感知的主色中位数避免白底污染主体边缘</li>
-        <li>中性色不再误配成偏棕或偏绿色号</li>
-        <li>保留细黑轮廓并合并抗锯齿、WebP 压缩过渡色</li>
-        <li>继续支持逐格手动修正色号、留空和撤销</li>
+        <li>新增真实 Image API 调用日志页面</li>
+        <li>显示模型、接口、状态、耗时、请求 ID 和错误</li>
+        <li>日志不会保存密钥、原图或返回图片</li>
+        <li>修复 API 设置无法连续修改并再次保存</li>
+        <li>测试连接会读取真实模型列表并给出建议</li>
       </ul>
     </aside>
 
@@ -175,7 +175,7 @@
       </div>
     </section>
   </main>
-  <script src="/static/logs.js"></script>
-  <script type="module" src="/static/app.js?v=0.5.0"></script>
+  <script src="/static/logs.js?v=0.6.0"></script>
+  <script type="module" src="/static/app.js?v=0.6.0"></script>
 </body>
 </html>
