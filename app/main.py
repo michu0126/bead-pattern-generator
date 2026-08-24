@@ -12,6 +12,7 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 from .ai import AIServiceError, ai_configured, image_model, remove_background
+from .api_logs import clear_api_calls, list_api_calls
 from .palette import BEAD_PALETTE
 from .pattern import generate_pattern
 from .settings import (
@@ -180,6 +181,22 @@ def delete_api_key(x_settings_password: str | None = Header(default=None)) -> di
         return {**public_settings(settings), "message": "已删除保存的 API Key"}
     except SettingsError as error:
         raise HTTPException(400, str(error)) from None
+
+
+@app.get("/api/settings/logs")
+def get_api_call_logs(
+    limit: int = 100,
+    x_settings_password: str | None = Header(default=None),
+) -> dict:
+    _authorize_settings(x_settings_password)
+    return {"logs": list_api_calls(limit)}
+
+
+@app.delete("/api/settings/logs")
+def delete_api_call_logs(x_settings_password: str | None = Header(default=None)) -> dict:
+    _authorize_settings(x_settings_password)
+    clear_api_calls()
+    return {"message": "API 调用日志已清空"}
 
 
 @app.post("/api/settings/test")

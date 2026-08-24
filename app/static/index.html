@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
   <link rel="stylesheet" href="/static/style.css?v=0.5.0">
+  <link rel="stylesheet" href="/static/logs.css">
 </head>
 <body>
   <main>
@@ -63,6 +64,23 @@
           <button id="save-api-settings" type="button">保存设置</button>
         </div>
         <p id="api-settings-message" class="status" role="status"></p>
+
+        <section class="api-log-panel" aria-labelledby="api-log-title">
+          <div class="api-log-heading">
+            <div>
+              <span class="release-label">REAL API TRAFFIC</span>
+              <h3 id="api-log-title">Image API 调用日志</h3>
+            </div>
+            <div class="api-log-actions">
+              <button id="refresh-api-logs" class="ghost" type="button">刷新日志</button>
+              <button id="clear-api-logs" class="ghost danger" type="button">清空日志</button>
+            </div>
+          </div>
+          <p class="settings-intro">只记录真正尝试发送到图像编辑接口的请求。不会保存 API Key、原图、返回图片或完整提示词。</p>
+          <p class="settings-warning">“生成 MARD 色号图纸”目前使用本地算法，不调用 Image API；只有选择云端模式并执行智能抠图时才会产生调用记录。</p>
+          <p id="api-log-message" class="status" role="status">输入设置管理密码后点击“刷新日志”。</p>
+          <div id="api-log-list" class="api-log-list" aria-live="polite"></div>
+        </section>
       </section>
     </dialog>
 
@@ -155,6 +173,7 @@
       </div>
     </section>
   </main>
+  <script src="/static/logs.js"></script>
   <script type="module" src="/static/app.js?v=0.5.0"></script>
 </body>
 </html>
