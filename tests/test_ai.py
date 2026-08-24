@@ -74,5 +74,6 @@ def test_ai_call_is_server_side_and_returns_decoded_png(monkeypatch):
 
 def test_ai_call_requires_server_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with pytest.raises(AIServiceError, match="API 密钥"):
+    with pytest.raises(AIServiceError, match="OpenAI 兼容 API"):
         asyncio.run(remove_background(b"input", "image.png", "image/png", "subject"))
+
