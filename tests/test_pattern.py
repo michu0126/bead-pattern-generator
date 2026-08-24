@@ -1,7 +1,8 @@
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageDraw
 
 from app.palette import BEAD_PALETTE
-from app.pattern import generate_pattern
+from app.pattern import _map_to_palette, generate_pattern
 
 
 def test_generate_pattern_returns_png_and_correct_total():
@@ -40,3 +41,43 @@ def test_exterior_white_is_empty_but_enclosed_white_is_kept():
     assert output.startswith(b"\x89PNG")
     assert sum(item["count"] for item in summary) == 25
     assert grid[4][4] is not None
+
+
+def test_neutral_pixels_only_match_neutral_palette_entries():
+    pixels = np.array([[123, 123, 123], [72, 72, 72], [205, 205, 205]], dtype=np.uint8)
+    indices = _map_to_palette(pixels, BEAD_PALETTE)
+    codes = [BEAD_PALETTE[int(index)]["code"] for index in indices]
+    assert all(code.startswith("H") for code in codes)
+
+
+def test_antialiased_black_and_white_do_not_create_tinted_greys():
+    image = Image.new("RGB", (400, 400), "white")
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((55, 55, 345, 345), fill="black")
+    draw.ellipse((135, 135, 265, 265), fill="white")
+    _, summary, _ = generate_pattern(image, 20, 20)
+    codes = {item["code"] for item in summary}
+    assert all(code.startswith("H") for code in codes)
+    assert "H7" in codes
+    assert "H2" in codes
+
+
+def test_thin_black_line_survives_block_sampling():
+    image = Image.new("RGBA", (160, 160), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((78, 0, 81, 159), fill=(0, 0, 0, 255))
+    _, summary, grid = generate_pattern(image, 10, 10)
+    assert any(item["code"] == "H7" for item in summary)
+    assert any(code == "H7" for row in grid for code in row)
+
+
+def test_solid_pink_is_not_split_into_neutral_or_brown_families():
+    image = Image.new("RGBA", (320, 320), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((40, 40, 280, 280), fill=(245, 155, 220, 255))
+    draw.rectangle((40, 40, 280, 280), outline=(0, 0, 0, 255), width=14)
+    _, summary, _ = generate_pattern(image, 16, 16)
+    chromatic_codes = {item["code"] for item in summary if not item["code"].startswith("H")}
+    assert chromatic_codes
+    assert all(code.startswith("E") for code in chromatic_codes)
+    assert len(chromatic_codes) <= 2
