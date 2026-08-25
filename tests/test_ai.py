@@ -5,7 +5,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from app.ai import AIServiceError, ai_configured, image_model, remove_background, suggest_cutout_subjects, vision_model
+from app.ai import AIServiceError, ai_configured, create_pattern_reference, image_model, remove_background, suggest_cutout_subjects, vision_model
 from app.api_logs import list_api_calls
 
 
@@ -151,3 +151,46 @@ def test_opaque_image_edit_response_is_rejected_and_logged(monkeypatch):
     assert log["success"] is False
     assert log["response"]["alpha"]["transparent_percent"] == 0.0
     assert "background=transparent" in log["error"]
+
+
+def test_image2_pattern_reference_preserves_source_alpha_and_logs(monkeypatch):
+    source_buffer = BytesIO()
+    source = Image.new("RGBA", (2, 1), (10, 20, 30, 255))
+    source.putpixel((0, 0), (10, 20, 30, 0))
+    source.save(source_buffer, format="PNG")
+    generated_buffer = BytesIO()
+    Image.new("RGB", (2, 1), (200, 100, 50)).save(generated_buffer, format="PNG")
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"x-request-id": "pattern-reference-test"}
+
+        def json(self):
+            return {"data": [{"b64_json": base64.b64encode(generated_buffer.getvalue()).decode("ascii")}]}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, *, headers, data, files):
+            assert url == "https://api.openai.com/v1/images/edits"
+            assert data["model"] == "gpt-image-2"
+            assert data["background"] == "transparent"
+            assert "do not draw a grid" in data["prompt"].lower()
+            return FakeResponse()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "private-test-key")
+    monkeypatch.setattr("app.ai.httpx.AsyncClient", FakeClient)
+    result = asyncio.run(create_pattern_reference(source_buffer.getvalue(), "source.png", "image/png"))
+    output = Image.open(BytesIO(result)).convert("RGBA")
+    assert output.getpixel((0, 0))[3] == 0
+    assert output.getpixel((1, 0)) == (200, 100, 50, 255)
+    log = list_api_calls()[0]
+    assert log["operation"] == "image_pattern_reference"
+    assert log["success"] is True
