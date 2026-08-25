@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from datetime import datetime, timezone
@@ -221,21 +222,30 @@ async def remove_background(
             "error": error,
         })
 
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(180.0, connect=20.0),
-            follow_redirects=False,
-        ) as client:
-            dispatched = True
-            response = await client.post(
-                settings.edit_url,
-                headers={"Authorization": f"Bearer {settings.api_key}"},
-                data=data,
-                files=files,
-            )
-    except httpx.RequestError as error:
-        log_call(False, error=f"网络错误：{type(error).__name__}")
-        raise AIServiceError("无法连接图像 API，请检查接口地址和群晖网络") from error
+    last_network_error = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(180.0, connect=20.0),
+                follow_redirects=False,
+            ) as client:
+                dispatched = True
+                response = await client.post(
+                    settings.edit_url,
+                    headers={"Authorization": f"Bearer {settings.api_key}"},
+                    data=data,
+                    files=files,
+                )
+        except httpx.RequestError as error:
+            last_network_error = error
+            if attempt < 2:
+                await asyncio.sleep(0.8 * (attempt + 1))
+                continue
+            log_call(False, error=f"网络错误（已重试 3 次）：{type(error).__name__}")
+            raise AIServiceError("无法连接图像 API，请检查接口地址和群晖网络") from error
+        if response.status_code not in {429, 500, 502, 503, 504} or attempt == 2:
+            break
+        await asyncio.sleep(0.8 * (attempt + 1))
 
     if response.status_code >= 400:
         try:
@@ -405,7 +415,9 @@ async def generate_direct_bead_pattern(
         "Preserve the subject silhouette, pose, proportions and all recognizable details, but express it as clear discrete bead cells. "
         "Every occupied cell must use only one of the following MARD code and HEX pairs, filled with that exact HEX and printed with its exact code: "
         f"{palette_reference}. "
-        "Leave cells outside the subject blank white; do not use H2 for exterior background. "
+        "Leave only cells outside the subject blank white; do not use H2 for exterior background. "
+        "Every enclosed or internal white region of the subject, including eyes, face fills, highlights, and holes, is a real bead area: "
+        "fill it with the closest MARD white code and print that code in every occupied white cell. "
         "Draw only the rectangular bead grid and code labels. Do not add a title, legend, decorative border, watermark, prose, extra objects, or a second image. "
         "Return a high-resolution PNG of the complete chart."
     )
@@ -480,3 +492,80 @@ async def generate_direct_bead_pattern(
         raise AIServiceError("图像 API 没有返回兼容的 b64_json PNG 图纸") from error
     log_call(True, output_bytes=len(result))
     return result
+
+
+def _material_rows(text: str) -> list[dict[str, int | str]]:
+    try:
+        parsed = json.loads(text.strip().strip(chr(96)).removeprefix("json").strip())
+    except json.JSONDecodeError:
+        return []
+    raw = parsed.get("materials", []) if isinstance(parsed, dict) else []
+    known_codes = {item["code"] for item in BEAD_PALETTE}
+    merged: dict[str, int] = {}
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code", "")).strip().upper()
+        try:
+            count = int(item.get("count", 0))
+        except (TypeError, ValueError):
+            continue
+        if code in known_codes and count > 0:
+            merged[code] = merged.get(code, 0) + count
+    return [{"code": code, "count": count} for code, count in sorted(merged.items())]
+
+
+async def extract_direct_pattern_materials(chart: bytes, width: int, height: int) -> list[dict[str, int | str]]:
+    """Ask the configured vision model to read Image2's rendered code grid."""
+    try:
+        settings = load_settings()
+    except SettingsError as error:
+        raise AIServiceError(str(error)) from error
+    if not settings.vision_enabled:
+        raise AIServiceError("服务器尚未配置可用的识图模型")
+    prompt = (
+        f"Read this {width} by {height} MARD bead chart. Count every visible occupied cell by its printed MARD code, "
+        "including enclosed white regions inside the subject. Ignore unlabelled exterior blank cells. "
+        'Return JSON only: {"materials":[{"code":"H2","count":12}]}. '
+        "Only include codes that are visibly present; do not invent or estimate unreadable cells."
+    )
+    payload = {
+        "model": settings.vision_model,
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(chart).decode("ascii"), "detail": "high"}},
+        ]}],
+        "temperature": 0,
+    }
+    call_id, dispatched, response = str(uuid4()), False, None
+    started_at, clock = datetime.now(timezone.utc).isoformat(timespec="milliseconds"), time.monotonic()
+
+    def log_call(success: bool, error: str | None = None) -> None:
+        headers = getattr(response, "headers", {}) if response is not None else {}
+        record_api_call({
+            "id": call_id, "started_at": started_at, "operation": "vision_pattern_materials",
+            "provider": "OpenAI compatible", "endpoint": settings.chat_url, "model": settings.vision_model,
+            "dispatched": dispatched, "success": success, "duration_ms": round((time.monotonic() - clock) * 1000),
+            "input": {"bytes": len(chart), "board": f"{width}x{height}"},
+            "request": {"response_format": "json-instruction", "image_detail": "high"},
+            "response": {"status_code": getattr(response, "status_code", None), "content_type": headers.get("content-type"), "request_id": headers.get("x-request-id") or headers.get("request-id")},
+            "error": error,
+        })
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=20.0), follow_redirects=False) as client:
+            dispatched = True
+            response = await client.post(settings.chat_url, headers={"Authorization": f"Bearer {settings.api_key}"}, json=payload)
+    except httpx.RequestError as error:
+        log_call(False, f"网络错误：{type(error).__name__}")
+        raise AIServiceError("无法连接材料清单识别 API") from error
+    if response.status_code >= 400:
+        detail = f"材料清单识别请求失败（{response.status_code}）"
+        log_call(False, detail)
+        raise AIServiceError(detail)
+    materials = _material_rows(_chat_text(response.json()))
+    if not materials:
+        log_call(False, "识图模型没有返回可用的材料清单")
+        raise AIServiceError("识图模型没有返回可用的材料清单")
+    log_call(True)
+    return materials
