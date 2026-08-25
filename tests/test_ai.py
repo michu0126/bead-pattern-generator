@@ -113,3 +113,41 @@ def test_vision_analysis_uses_chat_completions_and_returns_choices(monkeypatch):
     log = list_api_calls()[0]
     assert log["operation"] == "vision_subject_analysis"
     assert log["model"] == "gpt-5.5"
+
+
+def test_opaque_image_edit_response_is_rejected_and_logged(monkeypatch):
+    original_buffer = BytesIO()
+    Image.new("RGB", (20, 20), (12, 34, 56)).save(original_buffer, format="PNG")
+    original = original_buffer.getvalue()
+    opaque_buffer = BytesIO()
+    Image.new("RGBA", (20, 20), (200, 100, 50, 255)).save(opaque_buffer, format="PNG")
+    opaque = opaque_buffer.getvalue()
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"b64_json": base64.b64encode(opaque).decode("ascii")}]}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, *, headers, data, files):
+            return FakeResponse()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "private-test-key")
+    monkeypatch.setattr("app.ai.httpx.AsyncClient", FakeClient)
+    with pytest.raises(AIServiceError, match="几乎没有透明背景"):
+        asyncio.run(remove_background(original, "person.png", "image/png", "woman"))
+
+    log = list_api_calls()[0]
+    assert log["success"] is False
+    assert log["response"]["alpha"]["transparent_percent"] == 0.0
+    assert "background=transparent" in log["error"]
