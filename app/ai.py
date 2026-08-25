@@ -107,16 +107,39 @@ async def suggest_cutout_subjects(image: bytes, content_type: str, requested: st
     return options
 
 
-def _apply_ai_alpha_to_original(original_bytes: bytes, edited_bytes: bytes) -> bytes:
+MIN_TRANSPARENT_FRACTION = 0.005
+
+
+def _apply_ai_alpha_to_original(original_bytes: bytes, edited_bytes: bytes) -> tuple[bytes, dict[str, float | int]]:
+    """Apply only a verified transparent mask, never AI-generated colour pixels."""
     original = ImageOps.exif_transpose(Image.open(BytesIO(original_bytes))).convert("RGBA")
     edited = Image.open(BytesIO(edited_bytes)).convert("RGBA")
     alpha = edited.getchannel("A")
     if alpha.size != original.size:
         alpha = alpha.resize(original.size, Image.Resampling.LANCZOS)
+
+    histogram = alpha.histogram()
+    total_pixels = alpha.width * alpha.height
+    transparent_pixels = sum(histogram[:250])
+    transparent_fraction = transparent_pixels / max(total_pixels, 1)
+    alpha_info: dict[str, float | int] = {
+        "transparent_pixels": transparent_pixels,
+        "total_pixels": total_pixels,
+        "transparent_percent": round(transparent_fraction * 100, 2),
+        "alpha_min": next((value for value, count in enumerate(histogram) if count), 255),
+        "alpha_max": next((value for value in range(255, -1, -1) if histogram[value]), 255),
+    }
+    if transparent_fraction < MIN_TRANSPARENT_FRACTION:
+        raise AIServiceError(
+            "图像编辑接口返回的 PNG 几乎没有透明背景（透明像素 "
+            f"{alpha_info['transparent_percent']}%）。该兼容接口可能忽略了 background=transparent；"
+            "请改用支持透明背景的图像编辑模型或选择本地识图。"
+        )
+
     original.putalpha(alpha)
     output = BytesIO()
     original.save(output, format="PNG", optimize=True)
-    return output.getvalue()
+    return output.getvalue(), alpha_info
 
 
 async def remove_background(
@@ -157,7 +180,14 @@ async def remove_background(
     started_clock = time.monotonic()
     dispatched = False
 
-    def log_call(success: bool, *, response=None, error: str | None = None, output_bytes: int | None = None) -> None:
+    def log_call(
+        success: bool,
+        *,
+        response=None,
+        error: str | None = None,
+        output_bytes: int | None = None,
+        alpha_info: dict[str, float | int] | None = None,
+    ) -> None:
         response_headers = getattr(response, "headers", {}) if response is not None else {}
         request_id = None
         for header_name in ("x-request-id", "openai-request-id", "request-id", "cf-ray"):
@@ -192,6 +222,7 @@ async def remove_background(
                 "content_type": response_headers.get("content-type"),
                 "request_id": request_id,
                 "output_bytes": output_bytes,
+                "alpha": alpha_info,
             },
             "error": error,
         })
@@ -224,9 +255,12 @@ async def remove_background(
     try:
         encoded = response.json()["data"][0]["b64_json"]
         edited = base64.b64decode(encoded, validate=True)
-        result = _apply_ai_alpha_to_original(image, edited)
-        log_call(True, response=response, output_bytes=len(result))
+        result, alpha_info = _apply_ai_alpha_to_original(image, edited)
+        log_call(True, response=response, output_bytes=len(result), alpha_info=alpha_info)
         return result
+    except AIServiceError as error:
+        log_call(False, response=response, error=str(error))
+        raise
     except (KeyError, IndexError, TypeError, ValueError, OSError) as error:
         log_call(False, response=response, error="API 没有返回兼容的 b64_json 图片")
         raise AIServiceError("API 没有返回兼容的 b64_json 图片") from error
