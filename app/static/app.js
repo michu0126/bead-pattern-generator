@@ -715,8 +715,11 @@ function showDirectImage2Pattern(data) {
   $('#pattern').classList.remove('hidden');
   canvas.classList.add('hidden');
   $('#pixel-editor').classList.add('hidden');
-  $('#total').textContent = 'Image2 直接生成';
-  $('#palette').innerHTML = '<p class="status">此图纸由 Image2 直接生成，当前不提供可验证的 MARD 用量统计或逐格编辑。</p>';
+  const rows = Array.isArray(data.palette) ? data.palette : [];
+  $('#total').textContent = rows.length ? 'AI 识别材料 ' + (data.total || 0) + ' 颗' : 'Image2 直接生成';
+  $('#palette').innerHTML = rows.length
+    ? '<p class="status">以下为视觉模型读取图纸得到的材料清单，请核对色号与数量。</p>' + rows.map(item => '<div class="palette-row"><span class="swatch" style="background:' + item.hex + '"></span><strong>' + item.code + '</strong><span>' + item.name + '</span><b>' + item.count + ' 颗</b></div>').join('')
+    : '<p class="status">' + (data.material_warning || 'Image2 图纸已生成，但材料清单识别暂不可用。') + '</p>';
 }
 
 generateButton.addEventListener('click', async () => {
