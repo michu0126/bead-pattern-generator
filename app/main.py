@@ -29,12 +29,12 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 VERSION_CHANGES = [
-    "严格色卡优先：原图每个像素先按 HEX 匹配 MARD，非色卡色再选最近色",
-    "板格仅对离散色号按真实覆盖面积等比缩小，禁止 RGB 平均混色",
-    "移除边缘平滑对细小真实色块的压低，保留更多原图色彩细节",
-    "无插值像素分析上限提升至 4096 像素",
+    "新增 Image2 色块优化：生成边缘清晰的参考图，确认后再生成 MARD 图纸",
+    "Image2 结果可采用或弃用；透明背景会沿用已确认的抠图遮罩",
+    "最终每格 MARD 色号仍由本地严格色卡算法生成，支持手动编辑",
+    "调用日志新增 image_pattern_reference，方便核验真实 API 调用",
 ]
 
 BOARD_SPECS = {
