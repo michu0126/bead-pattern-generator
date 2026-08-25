@@ -38,12 +38,10 @@ let editHistory = [];
 let editorCellSize = 24;
 
 const BOARD_FALLBACK = [
-  { id: '50x50', label: '50 × 50（2.6 mm 标准单板）' },
-  { id: '52x52', label: '52 × 52（2.6 mm 标准单板）' },
-  { id: '100x50', label: '100 × 50（两块 50 板横拼）' },
-  { id: '104x52', label: '104 × 52（两块 52 板横拼）' },
-  { id: '100x100', label: '100 × 100（四块 50 板）' },
-  { id: '104x104', label: '104 × 104（四块 52 板）' },
+  { id: '52x52', label: '52 钉单板', width: 52, height: 52 },
+  { id: '72x72', label: '72 钉单板', width: 72, height: 72 },
+  { id: '78x78', label: '78 钉单板', width: 78, height: 78 },
+  { id: '104x104', label: '104 钉单板', width: 104, height: 104 },
 ];
 
 async function loadVersion() {
@@ -278,7 +276,38 @@ async function loadBoards() {
 }
 
 function fillBoards(boards) {
-  $('#board').innerHTML = boards.map(item => `<option value="${item.id}">${item.label}</option>`).join('');
+  const boardInput = $('#board');
+  const options = $('#board-options');
+  const selected = boards.some(item => item.id === boardInput.value) ? boardInput.value : boards[0]?.id;
+  boardInput.value = selected || '';
+  options.replaceChildren();
+
+  boards.forEach(item => {
+    const button = document.createElement('button');
+    const size = document.createElement('strong');
+    const label = document.createElement('span');
+    const meta = document.createElement('small');
+    button.type = 'button';
+    button.className = 'board-choice';
+    button.dataset.board = item.id;
+    button.setAttribute('role', 'radio');
+    size.textContent = (item.width || item.id.split('x')[0]) + ' × ' + (item.height || item.id.split('x')[1]);
+    label.textContent = item.label;
+    meta.textContent = '钉位';
+    button.append(size, label, meta);
+    button.addEventListener('click', () => {
+      boardInput.value = item.id;
+      options.querySelectorAll('.board-choice').forEach(choice => {
+        const isSelected = choice.dataset.board === item.id;
+        choice.classList.toggle('selected', isSelected);
+        choice.setAttribute('aria-checked', String(isSelected));
+      });
+    });
+    const isSelected = item.id === selected;
+    button.classList.toggle('selected', isSelected);
+    button.setAttribute('aria-checked', String(isSelected));
+    options.append(button);
+  });
 }
 
 function clearObjectUrl(url) {
