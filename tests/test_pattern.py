@@ -132,3 +132,23 @@ def test_fully_transparent_hidden_rgb_never_contaminates_visible_cells():
     _, _, grid = generate_pattern(image, 10, 10)
     assert all(code is None for row in grid for code in row[:5])
     assert all(code == "C8" for row in grid for code in row[5:])
+
+
+def test_every_mard_hex_maps_back_to_its_own_code_exactly():
+    pixels = np.array([item["rgb"] for item in BEAD_PALETTE], dtype=np.uint8)
+    indices = _map_to_palette(pixels, BEAD_PALETTE)
+    assert indices.tolist() == list(range(len(BEAD_PALETTE)))
+
+
+def test_non_palette_hex_uses_nearest_mard_colour():
+    target_index = next(index for index, item in enumerate(BEAD_PALETTE) if item["code"] == "C8")
+    target = np.array(BEAD_PALETTE[target_index]["rgb"], dtype=np.int16)
+    near = np.clip(target + np.array([1, -1, 1]), 0, 255).astype(np.uint8)
+    index = int(_map_to_palette(near.reshape(1, 3), BEAD_PALETTE)[0])
+    assert BEAD_PALETTE[index]["code"] == "C8"
+
+
+def test_palette_keeps_lossless_hex_values():
+    assert all(item["hex"].startswith("#") and len(item["hex"]) == 7 for item in BEAD_PALETTE)
+    assert next(item["hex"] for item in BEAD_PALETTE if item["code"] == "A1") == "#FAF4C8"
+    assert next(item["hex"] for item in BEAD_PALETTE if item["code"] == "H7") == "#000000"
