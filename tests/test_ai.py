@@ -5,7 +5,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from app.ai import AIServiceError, ai_configured, image_model, remove_background
+from app.ai import AIServiceError, ai_configured, image_model, remove_background, suggest_cutout_subjects, vision_model
 from app.api_logs import list_api_calls
 
 
@@ -20,6 +20,7 @@ def test_ai_is_optional(monkeypatch):
     monkeypatch.delenv("OPENAI_IMAGE_MODEL", raising=False)
     assert ai_configured() is False
     assert image_model() == "gpt-image-2"
+    assert vision_model() == "gpt-5.5"
 
 
 def test_ai_configuration_comes_from_environment(monkeypatch):
@@ -86,3 +87,29 @@ def test_ai_call_requires_server_key(monkeypatch):
     with pytest.raises(AIServiceError, match="OpenAI 兼容 API"):
         asyncio.run(remove_background(b"input", "image.png", "image/png", "subject"))
 
+
+
+def test_vision_analysis_uses_chat_completions_and_returns_choices(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        headers = {"x-request-id": "vision-test"}
+        def json(self):
+            return {"choices": [{"message": {"content": '{"subjects":[{"label":"小猫","prompt":"the small cat"}]}'}}]}
+
+    class FakeClient:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return None
+        async def post(self, url, *, headers, json):
+            assert url == "https://api.openai.com/v1/chat/completions"
+            assert json["model"] == "gpt-5.5"
+            assert json["messages"][0]["content"][1]["type"] == "image_url"
+            return FakeResponse()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "private-test-key")
+    monkeypatch.setattr("app.ai.httpx.AsyncClient", FakeClient)
+    choices = asyncio.run(suggest_cutout_subjects(b"image", "image/png", ""))
+    assert choices == [{"id": "subject-1", "label": "小猫", "prompt": "the small cat"}]
+    log = list_api_calls()[0]
+    assert log["operation"] == "vision_subject_analysis"
+    assert log["model"] == "gpt-5.5"

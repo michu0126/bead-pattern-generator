@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from .ai import AIServiceError, ai_configured, image_model, remove_background
+from .ai import AIServiceError, ai_configured, image_model, remove_background, suggest_cutout_subjects, vision_model
 from .api_logs import clear_api_calls, list_api_calls
 from .palette import BEAD_PALETTE
 from .pattern import generate_pattern
@@ -28,13 +28,13 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 VERSION_CHANGES = [
-    "以完整 24-bit HEX 精确匹配 MARD 2.6 mm 标准 221 色卡",
-    "采用源像素精确面积投票，避免缩放插值造成边缘混色",
-    "不匹配色使用 CIEDE2000 在全部 MARD 色卡中选取最近色",
-    "首页升级为精简的拼豆工作台，并加入原创拼豆风背景",
-    "保留智能抠图、API 调用日志与单格手动色号修正",
+    "新增两阶段云端抠图：识图模型先提供主体选项，图像模型再执行抠图",
+    "API 设置可分别配置识图模型（默认 gpt-5.5）与图像编辑模型（默认 gpt-image-2）",
+    "旧版误将 gpt-5.5 设为图像模型的配置会自动迁移",
+    "50 × 50、52 × 52 小板会自动聚焦较小主体，提升图案辨识度",
+    "弃用外部及脱离主体的白色区域，保留封闭图形内部白色",
 ]
 
 BOARD_SPECS = {
@@ -51,6 +51,7 @@ class APISettingsPayload(BaseModel):
     api_url: str = Field(min_length=1, max_length=2048)
     api_key: str | None = Field(default=None, max_length=4096)
     model: str = Field(min_length=1, max_length=200)
+    vision_model: str = Field(default="gpt-5.5", min_length=1, max_length=200)
     quality: str = Field(default="medium", min_length=1, max_length=40)
     clear_api_key: bool = False
 
@@ -103,12 +104,15 @@ def config() -> dict:
     try:
         enabled = ai_configured()
         model = image_model() if enabled else None
+        vision = vision_model() if enabled else None
     except SettingsError:
         enabled = False
         model = None
+        vision = None
     return {
         "ai_enabled": enabled,
         "ai_model": model,
+        "vision_model": vision,
         "settings_enabled": settings_password_configured(),
     }
 
@@ -130,15 +134,19 @@ def _settings_from_payload(payload: APISettingsPayload) -> AISettings:
     else:
         api_key = current.api_key
     model = payload.model.strip()
+    vision = payload.vision_model.strip()
     quality = payload.quality.strip()
     if not model:
         raise SettingsError("图像模型不能为空")
+    if not vision:
+        raise SettingsError("识图模型不能为空")
     if not quality:
         raise SettingsError("图像质量不能为空")
     return AISettings(
         api_url=normalize_api_url(payload.api_url),
         api_key=api_key,
         model=model,
+        vision_model=vision,
         quality=quality,
     )
 
@@ -178,6 +186,7 @@ def delete_api_key(x_settings_password: str | None = Header(default=None)) -> di
             api_url=current.api_url,
             api_key="",
             model=current.model,
+            vision_model=current.vision_model,
             quality=current.quality,
         )
         save_settings(settings)
@@ -213,6 +222,27 @@ async def test_api_settings(
         return await test_api_connection(settings)
     except SettingsError as error:
         raise HTTPException(400, str(error)) from None
+
+
+@app.post("/api/ai/subjects")
+async def ai_subjects(
+    image: UploadFile = File(...),
+    prompt: str = Form("", max_length=500),
+) -> dict:
+    raw = await image.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "图片不能超过 12 MB")
+    try:
+        source = Image.open(BytesIO(raw))
+        source.verify()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(400, "无法识别这张图片") from None
+    try:
+        subjects = await suggest_cutout_subjects(raw, image.content_type or "image/png", prompt)
+    except AIServiceError as error:
+        status = 503 if "尚未配置" in str(error) else 502
+        raise HTTPException(status, str(error)) from None
+    return {"model": vision_model(), "subjects": subjects}
 
 
 @app.post("/api/ai/cutout")

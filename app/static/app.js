@@ -9,6 +9,9 @@ const sourcePreview = $('#source-preview');
 const cutoutButton = $('#cutout');
 const cutoutPrompt = $('#cutout-prompt');
 const cutoutMessage = $('#cutout-message');
+const aiSubjectPanel = $('#ai-subject-panel');
+const aiSubjectOptions = $('#ai-subject-options');
+const applyAiCutoutButton = $('#apply-ai-cutout');
 const cutoutResult = $('#cutout-result');
 const cutoutPreview = $('#cutout-preview');
 const recognitionMode = $('#recognition-mode');
@@ -23,6 +26,7 @@ const context = canvas.getContext('2d');
 let sourceBlob = null;
 let workingBlob = null;
 let proposedCutout = null;
+let selectedAISubject = null;
 let sourceUrl = null;
 let cutoutUrl = null;
 let clipsegPromise = null;
@@ -65,8 +69,8 @@ async function loadConfig() {
     const option = recognitionMode.querySelector('option[value="openai"]');
     if (data.ai_enabled) {
       option.disabled = false;
-      option.textContent = `${data.ai_model}（OpenAI 兼容 API）`;
-      $('#ai-status').textContent = '选择云端模式会把当前图片发送到已配置的 API，并可能产生费用。';
+      option.textContent = `${data.vision_model || '识图模型'} 识图 + ${data.ai_model} 抠图`;
+      $('#ai-status').textContent = '云端模式先分析主体选项，再由图像模型执行抠图，可能产生费用。';
     } else {
       option.disabled = true;
       option.textContent = 'OpenAI 兼容 API（未配置）';
@@ -89,6 +93,7 @@ function settingsPayload() {
   return {
     api_url: $('#api-url').value.trim(),
     model: $('#api-model').value.trim(),
+    vision_model: $('#vision-model').value.trim(),
     quality: $('#api-quality').value,
     ...(key ? { api_key: key } : {}),
   };
@@ -144,6 +149,7 @@ function fillModelChoices(models) {
 function fillAPISettings(data) {
   $('#api-url').value = data.api_url;
   $('#api-model').value = data.model;
+  $('#vision-model').value = data.vision_model || 'gpt-5.5';
   $('#api-quality').value = data.quality;
   $('#api-key').value = '';
   $('#api-key-state').textContent = data.has_api_key
@@ -405,14 +411,40 @@ function showCutoutResult(blob, description) {
   cutoutResult.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-async function runOpenAICutout() {
+async function runOpenAIAnalysis() {
   const form = new FormData();
   form.append('image', sourceBlob, sourceBlob.type === 'image/png' ? 'image.png' : 'image.jpg');
   form.append('prompt', cutoutPrompt.value.trim());
-  const response = await fetch('/api/ai/cutout', { method: 'POST', body: form });
+  const response = await fetch('/api/ai/subjects', { method: 'POST', body: form });
   const data = await response.json();
   if (!response.ok) throw new Error(data.detail || '云端识图失败');
-  showCutoutResult(await dataUrlToBlob(data.image), `${data.model} 识图完成，请确认结果。`);
+  selectedAISubject = null;
+  aiSubjectOptions.replaceChildren();
+  (data.subjects || []).forEach(subject => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'subject-choice';
+    button.textContent = subject.label;
+    button.addEventListener('click', () => {
+      selectedAISubject = subject;
+      aiSubjectOptions.querySelectorAll('button').forEach(item => item.classList.toggle('selected', item === button));
+      applyAiCutoutButton.disabled = false;
+    });
+    aiSubjectOptions.append(button);
+  });
+  aiSubjectPanel.classList.remove('hidden');
+  cutoutMessage.textContent = (data.model || '识图模型') + ' 已给出主体选项，请选择后再抠图。';
+}
+
+async function runOpenAICutout() {
+  if (!selectedAISubject) throw new Error('请先选择要抠出的主体。');
+  const form = new FormData();
+  form.append('image', sourceBlob, sourceBlob.type === 'image/png' ? 'image.png' : 'image.jpg');
+  form.append('prompt', selectedAISubject.prompt);
+  const response = await fetch('/api/ai/cutout', { method: 'POST', body: form });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || '图像模型抠图失败');
+  showCutoutResult(await dataUrlToBlob(data.image), (data.model || '图像模型') + ' 抠图完成，请确认结果。');
 }
 
 async function runLocalCutout() {
@@ -431,23 +463,34 @@ cutoutButton.addEventListener('click', async () => {
   if (!cutoutPrompt.value.trim()) {
     workingBlob = sourceBlob;
     proposedCutout = null;
+    aiSubjectPanel.classList.add('hidden');
     cutoutResult.classList.add('hidden');
     cutoutMessage.textContent = '没有填写主体描述，已直接采用原图。';
     message.textContent = '已采用原图，可以生成图纸。';
     return;
   }
   cutoutButton.disabled = true;
-  cutoutMessage.textContent = recognitionMode.value === 'openai'
-    ? '正在通过已配置的兼容 API 识别并分离主体，请稍候…'
-    : '正在准备本地识别模型，首次使用可能需要几分钟…';
+  cutoutMessage.textContent = recognitionMode.value === 'openai' ? '正在分析图片中的主体选项…' : '正在准备本地识别模型，首次使用可能需要几分钟…';
   try {
-    if (recognitionMode.value === 'openai') await runOpenAICutout();
+    if (recognitionMode.value === 'openai') await runOpenAIAnalysis();
     else await runLocalCutout();
   } catch (error) {
     if (recognitionMode.value === 'local') clipsegPromise = null;
-    cutoutMessage.textContent = `抠图失败：${error.message || '请检查网络后重试'}`;
+    cutoutMessage.textContent = '识别失败：' + (error.message || '请检查网络后重试');
   } finally {
     cutoutButton.disabled = false;
+  }
+});
+
+applyAiCutoutButton.addEventListener('click', async () => {
+  applyAiCutoutButton.disabled = true;
+  cutoutMessage.textContent = '正在使用图像编辑模型抠图…';
+  try {
+    await runOpenAICutout();
+  } catch (error) {
+    cutoutMessage.textContent = '抠图失败：' + (error.message || '请检查网络后重试');
+  } finally {
+    applyAiCutoutButton.disabled = !selectedAISubject;
   }
 });
 

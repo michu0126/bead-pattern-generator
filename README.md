@@ -2,9 +2,9 @@
 
 把图片转换成 MARD 2.6 mm 拼豆图纸。应用会自动从 221 色参考色卡中匹配颜色，在每个格子内标出色号，并生成用量清单。支持用文字描述主体，在浏览器中先抠图、预览，再选择采用或弃用。
 
-当前版本：**v0.7.0**。本版升级为严格的 MARD HEX 色卡匹配与源像素面积投票，降低边缘混色；同时将首页整理为更简洁的拼豆工作台，保留 API 设置、调用日志、智能抠图与单格手动修正。
+当前版本：**v0.8.0**。本版新增“识图 → 选择主体 → 图像编辑抠图”的两阶段云端流程，支持分别配置 gpt-5.5 等识图模型与 GPT Image 图像编辑模型；同时优化 50×50、52×52 小板主体聚焦和外部白底弃用。
 
-生成前会检测与图片四周边缘连通的近白色区域，并把这些区域当成背景留空，因此主图外围白底不会被大量标为 H2；主体内部独立、不与边缘相连的白色仍会保留。
+生成前会检测近白色区域：连接画面边缘、或与主体不直接相连的独立白色区域会被当成背景留空；封闭图形内部且紧贴主体的白色仍会保留。
 
 ## 功能
 
@@ -13,7 +13,7 @@
 - 使用 MARD 2.6 mm 经典 221 色参考表，在 CIE Lab 色彩空间匹配近似色
 - 图纸中每一颗豆都显示 MARD 色号
 - 文字提示抠图；采用结果后，透明区域显示为空格且不计入豆子用量
-- 可选 OpenAI 或 OpenAI 兼容的图像编辑 API 云端识图增强
+- 可选 OpenAI 或兼容 API 的两阶段云端抠图：视觉模型识别主体选项，图像编辑模型执行抠图
 - 容器内 API 设置页可填写 URL、API Key、模型和质量，并测试连接
 - 点击任意图纸格子，手动改成其他 MARD 色号或设为空白，并支持逐步撤销
 - 本地模式只在浏览器中处理；云端模式会把图片发送给用户配置的 API 服务
@@ -80,7 +80,7 @@ GHCR 镜像地址为 `ghcr.io/michu0126/bead-pattern-generator:latest`。
 
 ### 可选的 OpenAI 兼容 API 云端增强
 
-根据 OpenAI 官方模型能力，GPT-5.6 接受图片但输出文本，GPT-Image-2 可以接受并输出编辑后的图片，因此本项目用 `gpt-image-2` 做可选的高质量前景分离。程序只采用 AI 结果的透明度遮罩，并把遮罩重新套回原图，避免生成模型改动主体颜色；MARD 色号仍由原图 RGB 和本地 Lab 色差算法确定。
+视觉语言模型（例如 `gpt-5.5`）可以读取图片并输出文字，本项目先让它分析原图、给出可选主体；用户选择后，再用能输出图片的 `gpt-image-2` 执行前景分离。程序只采用图像模型结果的透明度遮罩，并把遮罩重新套回原图，避免生成模型改动主体颜色；MARD 色号仍由原图 RGB 和本地 Lab 色差算法确定。
 
 部署时只需要先设置一个网页管理密码：
 
@@ -95,14 +95,15 @@ volumes:
 
 - API URL：可以是 `https://api.openai.com/v1` 这样的基础地址，也可以是完整的 `/images/edits` 地址
 - API Key：保存在服务端，读取设置时不会返回给浏览器；留空保存表示保留原密钥
-- 图像模型：官方 OpenAI 推荐填写 `gpt-image-2`，兼容服务则填写服务商提供的模型 ID
+- 识图模型：默认 `gpt-5.5`，用于分析原图并给出主体可选项（调用 `/chat/completions`）
+- 图像编辑模型：默认 `gpt-image-2`，用于按已选主体抠图（调用 `/images/edits`）
 - 图像质量：`low`、`medium`、`high` 或 `auto`
 
 “测试连接”只请求兼容接口的 `/models`，不会生成图片；部分声称兼容但未实现 `/models` 的服务可能无法通过测试。实际云端抠图要求服务实现 OpenAI 风格的 `POST /images/edits`，并在 `data[0].b64_json` 返回 PNG。
 
 API Key 以权限 `0600` 的配置文件保存在 `/data/settings.json`，请给容器挂载持久化数据卷。服务端不会把密钥返回给浏览器，但设置管理密码仍会随请求发送，因此请仅在可信局域网或 HTTPS 下使用。不要把真实密码或密钥提交到 GitHub。
 
-为兼容旧部署，`OPENAI_API_URL`、`OPENAI_API_KEY`、`OPENAI_IMAGE_MODEL` 和 `OPENAI_IMAGE_QUALITY` 环境变量仍可作为尚未保存网页设置时的默认值。
+为兼容旧部署，`OPENAI_API_URL`、`OPENAI_API_KEY`、`OPENAI_IMAGE_MODEL`、`OPENAI_VISION_MODEL` 和 `OPENAI_IMAGE_QUALITY` 环境变量仍可作为尚未保存网页设置时的默认值。
 
 群晖 Container Manager 可以使用项目中的 `compose.synology.yaml`。首次创建项目前，把留空的 `SETTINGS_PASSWORD` 改成自己的强密码。名为 `bead-pattern-data` 的卷会自动保存 API 设置；更新镜像和重建容器不会丢失。
 
@@ -130,6 +131,7 @@ docker run --rm -p 18026:18026 bead-pattern-generator
 - `PUT /api/settings`：保存 API 设置，需要 `X-Settings-Password`
 - `DELETE /api/settings/key`：删除已保存的 API Key，需要 `X-Settings-Password`
 - `POST /api/settings/test`：测试兼容接口的 `/models`，需要 `X-Settings-Password`
+- `POST /api/ai/subjects`：使用视觉模型分析原图并返回主体选项
 - `POST /api/ai/cutout`：使用配置的 OpenAI 兼容图像编辑接口返回透明背景结果
 - `POST /api/generate`：字段为图片 `image` 和板型编号 `board`
 - `GET /docs`：交互式 API 文档

@@ -3,7 +3,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from app.palette import BEAD_PALETTE
-from app.pattern import _delta_e_2000, _map_to_palette, generate_pattern
+from app.pattern import _delta_e_2000, _discardable_white_mask, _map_to_palette, generate_pattern
 
 
 def test_generate_pattern_returns_png_and_correct_total():
@@ -158,3 +158,25 @@ def test_ciede2000_matches_published_reference_pair():
     second = np.array([[[50.0, 0.0, -82.7485]]])
     distance = float(np.sqrt(_delta_e_2000(first, second))[0, 0])
     assert distance == pytest.approx(2.0425, abs=0.0001)
+
+
+def test_detached_white_regions_are_dropped_but_enclosed_white_is_kept():
+    pixels = np.zeros((12, 12, 4), dtype=np.uint8)
+    # Detached white island has no adjacent opaque subject and must become empty.
+    pixels[2:4, 2:4] = (255, 255, 255, 255)
+    # The second white island is bounded by an opaque black outline and stays.
+    pixels[7:11, 7:11] = (0, 0, 0, 255)
+    pixels[8:10, 8:10] = (255, 255, 255, 255)
+    discard = _discardable_white_mask(pixels)
+    assert discard[2, 2]
+    assert not discard[8, 8]
+
+
+def test_small_board_focuses_subject_instead_of_sampling_full_white_canvas():
+    image = Image.new("RGBA", (500, 500), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((205, 205, 294, 294), fill=(0, 0, 0, 255))
+    _, summary, grid = generate_pattern(image, 50, 50)
+    occupied = sum(code is not None for row in grid for code in row)
+    assert occupied > 900
+    assert {item["code"] for item in summary} == {"H7"}

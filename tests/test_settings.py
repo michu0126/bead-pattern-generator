@@ -5,6 +5,7 @@ import pytest
 from app.settings import (
     AISettings,
     SettingsAuthError,
+    chat_completion_url,
     image_edit_url,
     load_settings,
     models_url,
@@ -27,6 +28,7 @@ def test_openai_compatible_urls_accept_base_or_full_endpoint():
     assert image_edit_url("https://api.openai.com/v1") == "https://api.openai.com/v1/images/edits"
     assert image_edit_url("http://nas.local:11434/v1/images/edits") == "http://nas.local:11434/v1/images/edits"
     assert models_url("http://nas.local:11434/v1/images/edits") == "http://nas.local:11434/v1/models"
+    assert chat_completion_url("http://nas.local:11434/v1/images/edits") == "http://nas.local:11434/v1/chat/completions"
 
 
 @pytest.mark.parametrize("url", ["", "ftp://example.com/v1", "https://user:pass@example.com/v1", "https://example.com/v1?q=secret"])
@@ -36,7 +38,7 @@ def test_invalid_api_urls_are_rejected(url):
 
 
 def test_settings_roundtrip_never_exposes_key():
-    expected = AISettings("https://provider.example/v1", "sk-private", "image-model", "high")
+    expected = AISettings("https://provider.example/v1", "sk-private", "image-model", "gpt-5.5", "high")
     save_settings(expected)
     assert load_settings() == expected
     visible = public_settings(load_settings())
@@ -82,6 +84,7 @@ def test_connection_uses_models_endpoint_and_bearer_key(monkeypatch):
         "https://provider.example/openai/v1",
         "sk-test",
         "image-model",
+        "gpt-5.5",
         "medium",
     )))
     assert result["ok"] is True
@@ -123,6 +126,17 @@ def test_connection_returns_model_ids(monkeypatch):
         api_url="https://provider.example/v1",
         api_key="secret",
         model="gpt-image-2",
+        vision_model="gpt-5.5",
         quality="high",
     )))
     assert result["models"] == ["gpt-5", "gpt-image-2"]
+
+
+def test_legacy_gpt5_image_model_is_migrated_to_vision_model(tmp_path, monkeypatch):
+    path = tmp_path / "data" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text('{"api_url":"https://provider.example/v1","api_key":"sk-test","model":"gpt-5.5","quality":"medium"}', encoding="utf-8")
+    monkeypatch.setenv("API_SETTINGS_FILE", str(path))
+    settings = load_settings()
+    assert settings.vision_model == "gpt-5.5"
+    assert settings.model == "gpt-image-2"

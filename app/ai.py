@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from datetime import datetime, timezone
 from io import BytesIO
 import time
@@ -23,6 +24,87 @@ def ai_configured() -> bool:
 
 def image_model() -> str:
     return load_settings().model
+
+
+def vision_model() -> str:
+    return load_settings().vision_model
+
+
+
+def _chat_text(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return ""
+    message = choices[0].get("message", {})
+    return str(message.get("content", "")).strip() if isinstance(message, dict) else ""
+
+
+def _subject_options(text: str, requested: str) -> list[dict[str, str]]:
+    try:
+        parsed = json.loads(text.strip().strip(chr(96)).removeprefix("json").strip())
+    except json.JSONDecodeError:
+        parsed = {}
+    raw = parsed.get("subjects", []) if isinstance(parsed, dict) else []
+    options = []
+    for item in raw[:4] if isinstance(raw, list) else []:
+        if isinstance(item, dict) and str(item.get("label", "")).strip():
+            label = str(item["label"]).strip()[:80]
+            options.append({"id": f"subject-{len(options)+1}", "label": label, "prompt": str(item.get("prompt", label)).strip()[:300] or label})
+    fallback = requested.strip() or "图片中的主要前景主体"
+    return options or [{"id": "subject-1", "label": fallback[:80], "prompt": fallback[:300]}]
+
+
+async def suggest_cutout_subjects(image: bytes, content_type: str, requested: str) -> list[dict[str, str]]:
+    try:
+        settings = load_settings()
+    except SettingsError as error:
+        raise AIServiceError(str(error)) from error
+    if not settings.vision_enabled:
+        raise AIServiceError("服务器尚未配置可用的识图模型")
+    prompt = (
+        "Analyze this image for a later background-removal step. Return JSON only: "
+        "{\"subjects\":[{\"label\":\"short Chinese label\",\"prompt\":\"precise English subject description\"}]}. "
+        "List up to 4 visible foreground subjects; do not edit or generate an image. "
+        + (f"Prioritize this requested subject: {requested.strip()}." if requested.strip() else "Put the main subject first.")
+    )
+    data_url = f"data:{content_type or 'image/png'};base64,{base64.b64encode(image).decode('ascii')}"
+    payload = {"model": settings.vision_model, "messages": [{"role": "user", "content": [
+        {"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}}
+    ]}], "temperature": 0}
+    call_id, dispatched, response = str(uuid4()), False, None
+    started_at, clock = datetime.now(timezone.utc).isoformat(timespec="milliseconds"), time.monotonic()
+
+    def log(success: bool, error: str | None = None) -> None:
+        headers = getattr(response, "headers", {}) if response is not None else {}
+        record_api_call({"id": call_id, "started_at": started_at, "operation": "vision_subject_analysis",
+            "provider": "OpenAI compatible", "endpoint": settings.chat_url, "model": settings.vision_model,
+            "dispatched": dispatched, "success": success, "duration_ms": round((time.monotonic()-clock)*1000),
+            "input": {"bytes": len(image), "content_type": content_type or "image/png", "subject_provided": bool(requested.strip())},
+            "request": {"response_format": "json-instruction", "image_detail": "high"},
+            "response": {"status_code": getattr(response, "status_code", None), "content_type": headers.get("content-type"), "request_id": headers.get("x-request-id") or headers.get("request-id")},
+            "error": error})
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=20.0), follow_redirects=False) as client:
+            dispatched = True
+            response = await client.post(settings.chat_url, headers={"Authorization": f"Bearer {settings.api_key}"}, json=payload)
+    except httpx.RequestError as error:
+        log(False, f"网络错误：{type(error).__name__}")
+        raise AIServiceError("无法连接识图 API，请检查接口地址和群晖网络") from error
+    if response.status_code >= 400:
+        try: detail = str(response.json().get("error", {}).get("message") or "")[:300]
+        except ValueError: detail = ""
+        detail = detail or f"识图 API 请求失败（{response.status_code}）"
+        log(False, detail)
+        raise AIServiceError(detail)
+    try: options = _subject_options(_chat_text(response.json()), requested)
+    except ValueError as error:
+        log(False, "识图模型没有返回兼容的文本结果")
+        raise AIServiceError("识图模型没有返回兼容的文本结果") from error
+    log(True)
+    return options
 
 
 def _apply_ai_alpha_to_original(original_bytes: bytes, edited_bytes: bytes) -> bytes:
