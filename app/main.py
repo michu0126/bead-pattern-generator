@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from .ai import AIServiceError, ai_configured, create_pattern_reference, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
+from .ai import AIServiceError, ai_configured, create_pattern_reference, extract_direct_pattern_materials, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
 from .api_logs import clear_api_calls, list_api_calls
 from .local_cutout import LocalCutoutError, model_name as local_cutout_model, remove_background_locally
 from .palette import BEAD_PALETTE
@@ -346,9 +346,24 @@ async def ai_generate_pattern(
     except AIServiceError as error:
         status = 503 if "尚未配置" in str(error) else 502
         raise HTTPException(status, str(error)) from None
+    material_warning = None
+    try:
+        materials = await extract_direct_pattern_materials(result, spec["width"], spec["height"])
+    except AIServiceError as error:
+        materials = []
+        material_warning = str(error)
+    palette_by_code = {item["code"]: item for item in BEAD_PALETTE}
+    palette = [
+        {**palette_by_code[str(item["code"])], "count": int(item["count"])}
+        for item in materials
+        if str(item["code"]) in palette_by_code
+    ]
     return {
         "engine": image_model(),
         "board": spec,
+        "palette": palette,
+        "total": sum(item["count"] for item in palette),
+        "material_warning": material_warning,
         "image": "data:image/png;base64," + base64.b64encode(result).decode("ascii"),
     }
 
