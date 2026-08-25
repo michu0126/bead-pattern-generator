@@ -29,11 +29,12 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "0.9.0"
+APP_VERSION = "1.0.0"
 VERSION_CHANGES = [
-    "板型适配常用的 52、72、78、104 钉正方形单板",
-    "板型选择改为规格卡片，可直观看到尺寸和当前选项",
-    "默认板型改为 52 × 52 钉单板",
+    "新增容器本地分割抠图：默认使用内置 isnet-general-use 模型，不耗 Token",
+    "模型随镜像打包，群晖运行时无需 API Key 或外网",
+    "云端抠图会校验透明通道；不透明返回将明确报错而非显示原图",
+    "调用日志新增透明像素比例与 Alpha 范围",
 ]
 
 BOARD_SPECS = {
