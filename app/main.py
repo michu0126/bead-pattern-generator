@@ -186,6 +186,7 @@ def delete_api_key(x_settings_password: str | None = Header(default=None)) -> di
             api_url=current.api_url,
             api_key="",
             model=current.model,
+            vision_model=current.vision_model,
             quality=current.quality,
         )
         save_settings(settings)
