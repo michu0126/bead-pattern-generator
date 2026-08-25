@@ -13,8 +13,6 @@ from .palette import BEAD_PALETTE
 MIN_CELL_COVERAGE = 0.08
 DARK_CELL_COVERAGE = 0.07
 MAX_ANALYSIS_SIDE = 2048
-QUANTIZATION_LEVELS = 32
-_PALETTE_LUT_CACHE: dict[tuple[tuple[int, int, int], ...], np.ndarray] = {}
 
 
 def _srgb_to_lab(rgb: np.ndarray) -> np.ndarray:
@@ -37,63 +35,125 @@ def _srgb_to_lab(rgb: np.ndarray) -> np.ndarray:
     )
 
 
+def _delta_e_2000(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
+    """Vectorised CIEDE2000 distance for broadcast-compatible Lab arrays."""
+    lightness1, a1, b1 = np.moveaxis(lab1, -1, 0)
+    lightness2, a2, b2 = np.moveaxis(lab2, -1, 0)
+
+    chroma1 = np.hypot(a1, b1)
+    chroma2 = np.hypot(a2, b2)
+    mean_chroma = (chroma1 + chroma2) / 2
+    mean_chroma7 = mean_chroma**7
+    correction = 0.5 * (1 - np.sqrt(mean_chroma7 / (mean_chroma7 + 25.0**7)))
+
+    adjusted_a1 = (1 + correction) * a1
+    adjusted_a2 = (1 + correction) * a2
+    adjusted_chroma1 = np.hypot(adjusted_a1, b1)
+    adjusted_chroma2 = np.hypot(adjusted_a2, b2)
+    hue1 = np.degrees(np.arctan2(b1, adjusted_a1)) % 360
+    hue2 = np.degrees(np.arctan2(b2, adjusted_a2)) % 360
+
+    delta_lightness = lightness2 - lightness1
+    delta_chroma = adjusted_chroma2 - adjusted_chroma1
+    hue_difference = hue2 - hue1
+    chroma_product = adjusted_chroma1 * adjusted_chroma2
+    hue_difference = np.where(chroma_product == 0, 0, hue_difference)
+    hue_difference = np.where(hue_difference > 180, hue_difference - 360, hue_difference)
+    hue_difference = np.where(hue_difference < -180, hue_difference + 360, hue_difference)
+    delta_hue = 2 * np.sqrt(chroma_product) * np.sin(np.radians(hue_difference / 2))
+
+    mean_lightness = (lightness1 + lightness2) / 2
+    mean_adjusted_chroma = (adjusted_chroma1 + adjusted_chroma2) / 2
+    absolute_hue_difference = np.abs(hue1 - hue2)
+    hue_sum = hue1 + hue2
+    mean_hue = np.where(
+        chroma_product == 0,
+        hue_sum,
+        np.where(
+            absolute_hue_difference <= 180,
+            hue_sum / 2,
+            np.where(hue_sum < 360, (hue_sum + 360) / 2, (hue_sum - 360) / 2),
+        ),
+    )
+
+    hue_factor = (
+        1
+        - 0.17 * np.cos(np.radians(mean_hue - 30))
+        + 0.24 * np.cos(np.radians(2 * mean_hue))
+        + 0.32 * np.cos(np.radians(3 * mean_hue + 6))
+        - 0.20 * np.cos(np.radians(4 * mean_hue - 63))
+    )
+    lightness_scale = 1 + (
+        0.015 * (mean_lightness - 50) ** 2
+        / np.sqrt(20 + (mean_lightness - 50) ** 2)
+    )
+    chroma_scale = 1 + 0.045 * mean_adjusted_chroma
+    hue_scale = 1 + 0.015 * mean_adjusted_chroma * hue_factor
+    rotation_angle = 30 * np.exp(-((mean_hue - 275) / 25) ** 2)
+    mean_adjusted_chroma7 = mean_adjusted_chroma**7
+    rotation_chroma = 2 * np.sqrt(
+        mean_adjusted_chroma7 / (mean_adjusted_chroma7 + 25.0**7)
+    )
+    rotation = -np.sin(np.radians(2 * rotation_angle)) * rotation_chroma
+
+    lightness_term = delta_lightness / lightness_scale
+    chroma_term = delta_chroma / chroma_scale
+    hue_term = delta_hue / hue_scale
+    return np.maximum(
+        lightness_term**2
+        + chroma_term**2
+        + hue_term**2
+        + rotation * chroma_term * hue_term,
+        0,
+    )
+
+
+def _packed_rgb(rgb: np.ndarray) -> np.ndarray:
+    value = rgb.astype(np.uint32)
+    return (value[..., 0] << 16) | (value[..., 1] << 8) | value[..., 2]
+
+
 def _map_to_palette(pixels: np.ndarray, palette: list[dict]) -> np.ndarray:
-    """Match colours while preventing neutral greys from drifting into tinted families."""
-    flat = pixels.reshape(-1, 3)
-    pixel_lab = _srgb_to_lab(flat)
-    palette_rgb = np.array([item["rgb"] for item in palette])
-    palette_lab = _srgb_to_lab(palette_rgb)
+    """Exact 24-bit HEX match first; CIEDE2000 nearest MARD colour otherwise."""
+    flat = pixels.reshape(-1, 3).astype(np.uint8, copy=False)
+    palette_rgb = np.array([item["rgb"] for item in palette], dtype=np.uint8)
+    pixel_keys = _packed_rgb(flat)
+    palette_keys = _packed_rgb(palette_rgb)
 
-    base_distances = np.sum((pixel_lab[:, None, :] - palette_lab[None, :, :]) ** 2, axis=2)
-    distances = base_distances.copy()
+    order = np.argsort(palette_keys, kind="stable")
+    sorted_keys = palette_keys[order]
+    positions = np.searchsorted(sorted_keys, pixel_keys)
+    bounded_positions = np.minimum(positions, len(sorted_keys) - 1)
+    exact = (positions < len(sorted_keys)) & (sorted_keys[bounded_positions] == pixel_keys)
 
-    pixel_spread = np.ptp(flat.astype(np.int16), axis=1)
-    palette_spread = np.ptp(palette_rgb.astype(np.int16), axis=1)
-    neutral_pixels = pixel_spread <= 12
-    neutral_palette = palette_spread <= 6
-    distances[np.ix_(neutral_pixels, ~neutral_palette)] = np.inf
-
-    pixel_chroma = np.hypot(pixel_lab[:, 1], pixel_lab[:, 2])
-    palette_chroma = np.hypot(palette_lab[:, 1], palette_lab[:, 2])
-    pixel_hue = np.degrees(np.arctan2(pixel_lab[:, 2], pixel_lab[:, 1]))
-    palette_hue = np.degrees(np.arctan2(palette_lab[:, 2], palette_lab[:, 1]))
-    hue_delta = np.abs((pixel_hue[:, None] - palette_hue[None, :] + 180) % 360 - 180)
-
-    chromatic_pixels = pixel_chroma >= 12
-    compatible_hue = (palette_chroma[None, :] >= 7) & (hue_delta <= 55)
-    hue_penalty = (hue_delta / 30) ** 2 * 16
-    chromatic_cost = np.where(compatible_hue, distances + hue_penalty, np.inf)
-    distances[chromatic_pixels] = chromatic_cost[chromatic_pixels]
-
-    no_candidate = ~np.any(np.isfinite(distances), axis=1)
-    distances[no_candidate] = base_distances[no_candidate]
-    return np.argmin(distances, axis=1).reshape(pixels.shape[:-1])
-
-
-def _palette_lookup(palette: list[dict]) -> np.ndarray:
-    """Map a compact RGB cube to palette indices once, then reuse it per source pixel."""
-    key = tuple(tuple(int(channel) for channel in item["rgb"]) for item in palette)
-    cached = _PALETTE_LUT_CACHE.get(key)
-    if cached is not None:
-        return cached
-
-    levels = np.arange(QUANTIZATION_LEVELS, dtype=np.uint8) * 8 + 4
-    levels[0] = 0
-    levels[-1] = 255
-    red, green, blue = np.meshgrid(levels, levels, levels, indexing="ij")
-    samples = np.stack((red, green, blue), axis=-1).reshape(-1, 3)
-    lookup = np.empty(len(samples), dtype=np.int16)
-    for start in range(0, len(samples), 4096):
-        stop = min(start + 4096, len(samples))
-        lookup[start:stop] = _map_to_palette(samples[start:stop], palette).reshape(-1)
-    _PALETTE_LUT_CACHE[key] = lookup
-    return lookup
+    mapped = np.empty(len(flat), dtype=np.int16)
+    mapped[exact] = order[bounded_positions[exact]]
+    unmatched = ~exact
+    if np.any(unmatched):
+        pixel_lab = _srgb_to_lab(flat[unmatched])
+        palette_lab = _srgb_to_lab(palette_rgb)
+        distances = _delta_e_2000(pixel_lab[:, None, :], palette_lab[None, :, :])
+        mapped[unmatched] = np.argmin(distances, axis=1)
+    return mapped.reshape(pixels.shape[:-1])
 
 
 def _pixel_palette_indices(rgb: np.ndarray, palette: list[dict]) -> np.ndarray:
-    bins = rgb.astype(np.uint16) >> 3
-    keys = (bins[..., 0] * 1024 + bins[..., 1] * 32 + bins[..., 2]).astype(np.int32)
-    return _palette_lookup(palette)[keys]
+    """Match every distinct source HEX losslessly without reducing colour depth."""
+    flat_keys = _packed_rgb(rgb).reshape(-1)
+    unique_keys, inverse = np.unique(flat_keys, return_inverse=True)
+    unique_rgb = np.stack(
+        (
+            (unique_keys >> 16) & 255,
+            (unique_keys >> 8) & 255,
+            unique_keys & 255,
+        ),
+        axis=1,
+    ).astype(np.uint8)
+    mapped = np.empty(len(unique_rgb), dtype=np.int16)
+    for start in range(0, len(unique_rgb), 4096):
+        stop = min(start + 4096, len(unique_rgb))
+        mapped[start:stop] = _map_to_palette(unique_rgb[start:stop], palette).reshape(-1)
+    return mapped[inverse].reshape(rgb.shape[:-1])
 
 
 def _prepare_source(image: Image.Image) -> np.ndarray:
