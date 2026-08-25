@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from .ai import AIServiceError, ai_configured, image_model, remove_background, suggest_cutout_subjects, vision_model
 from .api_logs import clear_api_calls, list_api_calls
+from .local_cutout import LocalCutoutError, model_name as local_cutout_model, remove_background_locally
 from .palette import BEAD_PALETTE
 from .pattern import generate_pattern
 from .settings import (
@@ -110,6 +111,8 @@ def config() -> dict:
         "ai_model": model,
         "vision_model": vision,
         "settings_enabled": settings_password_configured(),
+        "local_cutout_enabled": True,
+        "local_cutout_model": local_cutout_model(),
     }
 
 
@@ -239,6 +242,26 @@ async def ai_subjects(
         status = 503 if "尚未配置" in str(error) else 502
         raise HTTPException(status, str(error)) from None
     return {"model": vision_model(), "subjects": subjects}
+
+
+@app.post("/api/local-cutout")
+async def local_cutout(image: UploadFile = File(...)) -> dict:
+    raw = await image.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "图片不能超过 12 MB")
+    try:
+        source = Image.open(BytesIO(raw))
+        source.verify()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(400, "无法识别这张图片") from None
+    try:
+        result = await run_in_threadpool(remove_background_locally, raw)
+    except LocalCutoutError as error:
+        raise HTTPException(422, str(error)) from None
+    return {
+        "engine": f"容器本地分割（{local_cutout_model()}）",
+        "image": "data:image/png;base64," + base64.b64encode(result).decode("ascii"),
+    }
 
 
 @app.post("/api/ai/cutout")
