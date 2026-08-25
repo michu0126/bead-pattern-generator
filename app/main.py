@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from .ai import AIServiceError, ai_configured, create_pattern_reference, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
+from .ai import AIServiceError, ai_configured, create_pattern_reference, extract_direct_pattern_materials, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
 from .api_logs import clear_api_calls, list_api_calls
 from .local_cutout import LocalCutoutError, model_name as local_cutout_model, remove_background_locally
 from .palette import BEAD_PALETTE
@@ -29,12 +29,12 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 VERSION_CHANGES = [
-    "生成图纸改为直接调用 Image2，不再使用本地色卡缩格算法",
-    "本地分割模型继续用于准确抠图；采用结果后按所选板子规格交由 Image2 出图",
-    "Image2 请求携带完整 MARD 色号与 HEX 色表，并要求输出格线和色号",
-    "日志新增 image_direct_pattern_generation，便于核验真实调用",
+    "抠图处理方式精简为本地抠图与 AI 抠图两个选项",
+    "移除浏览器文字识图及视觉模型识别主体后再抠图的界面流程",
+    "Image2 图纸调用对网络、429 与服务端错误自动重试最多 3 次",
+    "图纸内部白色区域要求标注 MARD 白色色号，并新增 AI 识别材料清单",
 ]
 
 BOARD_SPECS = {
@@ -346,9 +346,24 @@ async def ai_generate_pattern(
     except AIServiceError as error:
         status = 503 if "尚未配置" in str(error) else 502
         raise HTTPException(status, str(error)) from None
+    material_warning = None
+    try:
+        materials = await extract_direct_pattern_materials(result, spec["width"], spec["height"])
+    except AIServiceError as error:
+        materials = []
+        material_warning = str(error)
+    palette_by_code = {item["code"]: item for item in BEAD_PALETTE}
+    palette = [
+        {**palette_by_code[str(item["code"])], "count": int(item["count"])}
+        for item in materials
+        if str(item["code"]) in palette_by_code
+    ]
     return {
         "engine": image_model(),
         "board": spec,
+        "palette": palette,
+        "total": sum(item["count"] for item in palette),
+        "material_warning": material_warning,
         "image": "data:image/png;base64," + base64.b64encode(result).decode("ascii"),
     }
 
