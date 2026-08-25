@@ -129,13 +129,6 @@ def _apply_ai_alpha_to_original(original_bytes: bytes, edited_bytes: bytes) -> t
         "alpha_min": next((value for value, count in enumerate(histogram) if count), 255),
         "alpha_max": next((value for value in range(255, -1, -1) if histogram[value]), 255),
     }
-    if transparent_fraction < MIN_TRANSPARENT_FRACTION:
-        raise AIServiceError(
-            "图像编辑接口返回的 PNG 几乎没有透明背景（透明像素 "
-            f"{alpha_info['transparent_percent']}%）。该兼容接口可能忽略了 background=transparent；"
-            "请改用支持透明背景的图像编辑模型或选择本地识图。"
-        )
-
     original.putalpha(alpha)
     output = BytesIO()
     original.save(output, format="PNG", optimize=True)
@@ -256,6 +249,15 @@ async def remove_background(
         encoded = response.json()["data"][0]["b64_json"]
         edited = base64.b64decode(encoded, validate=True)
         result, alpha_info = _apply_ai_alpha_to_original(image, edited)
+        transparent_fraction = float(alpha_info["transparent_pixels"]) / max(int(alpha_info["total_pixels"]), 1)
+        if transparent_fraction < MIN_TRANSPARENT_FRACTION:
+            detail = (
+                "图像编辑接口返回的 PNG 几乎没有透明背景（透明像素 "
+                f"{alpha_info['transparent_percent']}%）。该兼容接口可能忽略了 background=transparent；"
+                "请改用支持透明背景的图像编辑模型或选择本地识图。"
+            )
+            log_call(False, response=response, error=detail, alpha_info=alpha_info)
+            raise AIServiceError(detail)
         log_call(True, response=response, output_bytes=len(result), alpha_info=alpha_info)
         return result
     except AIServiceError as error:
