@@ -81,3 +81,54 @@ def test_solid_pink_is_not_split_into_neutral_or_brown_families():
     assert chromatic_codes
     assert all(code.startswith("E") for code in chromatic_codes)
     assert len(chromatic_codes) <= 2
+
+
+def test_unaligned_colour_boundary_never_creates_a_blended_palette_code():
+    left = next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "F5")
+    right = next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "C8")
+    image = Image.new("RGB", (400, 200), right)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 202, 199), fill=left)
+
+    _, _, grid = generate_pattern(image, 20, 10)
+    codes = {code for row in grid for code in row if code is not None}
+    assert codes == {"F5", "C8"}
+
+
+def test_antialias_band_does_not_become_a_third_bead_colour():
+    left = np.array(next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "F5"))
+    right = np.array(next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "C8"))
+    image = Image.new("RGB", (400, 200), tuple(int(value) for value in right))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 195, 199), fill=tuple(int(value) for value in left))
+    for x in range(196, 204):
+        ratio = (x - 195) / 9
+        colour = np.rint(left * (1 - ratio) + right * ratio).astype(np.uint8)
+        draw.line((x, 0, x, 199), fill=tuple(int(value) for value in colour))
+
+    _, _, grid = generate_pattern(image, 20, 10)
+    codes = {code for row in grid for code in row if code is not None}
+    assert codes == {"F5", "C8"}
+
+
+def test_exact_area_majority_wins_without_rgb_averaging():
+    left = next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "F5")
+    right = next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "C8")
+    image = Image.new("RGB", (101, 101), right)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 50, 100), fill=left)
+
+    _, _, grid = generate_pattern(image, 1, 1)
+    assert grid == [["F5"]]
+
+
+def test_fully_transparent_hidden_rgb_never_contaminates_visible_cells():
+    hidden = next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "F5")
+    visible = next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "C8")
+    image = Image.new("RGBA", (100, 100), (*visible, 255))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 49, 99), fill=(*hidden, 0))
+
+    _, _, grid = generate_pattern(image, 10, 10)
+    assert all(code is None for row in grid for code in row[:5])
+    assert all(code == "C8" for row in grid for code in row[5:])
