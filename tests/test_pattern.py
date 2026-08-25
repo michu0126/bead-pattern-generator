@@ -1,8 +1,9 @@
 import numpy as np
+import pytest
 from PIL import Image, ImageDraw
 
 from app.palette import BEAD_PALETTE
-from app.pattern import _map_to_palette, generate_pattern
+from app.pattern import _delta_e_2000, _map_to_palette, generate_pattern
 
 
 def test_generate_pattern_returns_png_and_correct_total():
@@ -43,11 +44,11 @@ def test_exterior_white_is_empty_but_enclosed_white_is_kept():
     assert grid[4][4] is not None
 
 
-def test_neutral_pixels_only_match_neutral_palette_entries():
+def test_unmatched_greys_use_the_nearest_colour_across_the_full_palette():
     pixels = np.array([[123, 123, 123], [72, 72, 72], [205, 205, 205]], dtype=np.uint8)
     indices = _map_to_palette(pixels, BEAD_PALETTE)
     codes = [BEAD_PALETTE[int(index)]["code"] for index in indices]
-    assert all(code.startswith("H") for code in codes), codes
+    assert codes == ["M15", "H5", "H11"]
 
 
 def test_antialiased_black_and_white_do_not_create_tinted_greys():
@@ -71,16 +72,14 @@ def test_thin_black_line_survives_block_sampling():
     assert any(code == "H7" for row in grid for code in row)
 
 
-def test_solid_pink_is_not_split_into_neutral_or_brown_families():
+def test_solid_pink_uses_one_strict_nearest_code_without_edge_colours():
     image = Image.new("RGBA", (320, 320), (255, 255, 255, 0))
     draw = ImageDraw.Draw(image)
     draw.rectangle((40, 40, 280, 280), fill=(245, 155, 220, 255))
     draw.rectangle((40, 40, 280, 280), outline=(0, 0, 0, 255), width=14)
     _, summary, _ = generate_pattern(image, 16, 16)
     chromatic_codes = {item["code"] for item in summary if not item["code"].startswith("H")}
-    assert chromatic_codes
-    assert all(code.startswith("E") for code in chromatic_codes), chromatic_codes
-    assert len(chromatic_codes) <= 2
+    assert chromatic_codes == {"D12"}
 
 
 def test_unaligned_colour_boundary_never_creates_a_blended_palette_code():
@@ -152,3 +151,10 @@ def test_palette_keeps_lossless_hex_values():
     assert all(item["hex"].startswith("#") and len(item["hex"]) == 7 for item in BEAD_PALETTE)
     assert next(item["hex"] for item in BEAD_PALETTE if item["code"] == "A1") == "#FAF4C8"
     assert next(item["hex"] for item in BEAD_PALETTE if item["code"] == "H7") == "#000000"
+
+
+def test_ciede2000_matches_published_reference_pair():
+    first = np.array([[[50.0, 2.6772, -79.7751]]])
+    second = np.array([[[50.0, 0.0, -82.7485]]])
+    distance = float(np.sqrt(_delta_e_2000(first, second))[0, 0])
+    assert distance == pytest.approx(2.0425, abs=0.0001)
