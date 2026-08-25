@@ -29,12 +29,12 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 VERSION_CHANGES = [
-    "生成图纸改为直接调用 Image2，不再使用本地色卡缩格算法",
-    "本地分割模型继续用于准确抠图；采用结果后按所选板子规格交由 Image2 出图",
-    "Image2 请求携带完整 MARD 色号与 HEX 色表，并要求输出格线和色号",
-    "日志新增 image_direct_pattern_generation，便于核验真实调用",
+    "抠图处理方式精简为本地抠图与 AI 抠图两个选项",
+    "移除浏览器文字识图及视觉模型识别主体后再抠图的界面流程",
+    "Image2 图纸调用对网络、429 与服务端错误自动重试最多 3 次",
+    "图纸内部白色区域要求标注 MARD 白色色号，并新增 AI 识别材料清单",
 ]
 
 BOARD_SPECS = {
