@@ -706,26 +706,33 @@ $('#undo-pixel').addEventListener('click', () => {
   updatePixelPanel();
 });
 
+function showDirectImage2Pattern(data) {
+  patternGrid = [];
+  selectedCell = null;
+  editHistory = [];
+  $('#pattern').src = data.image;
+  $('#download').href = data.image;
+  $('#pattern').classList.remove('hidden');
+  canvas.classList.add('hidden');
+  $('#pixel-editor').classList.add('hidden');
+  $('#total').textContent = 'Image2 直接生成';
+  $('#palette').innerHTML = '<p class="status">此图纸由 Image2 直接生成，当前不提供可验证的 MARD 用量统计或逐格编辑。</p>';
+}
+
 generateButton.addEventListener('click', async () => {
-  if (!workingBlob) { message.textContent = '请先选择一张图片。'; return; }
+  if (!workingBlob) { message.textContent = '请先选择并确认抠图结果。'; return; }
   const form = new FormData();
-  form.append('image', workingBlob, workingBlob.type === 'image/png' ? 'image.png' : 'image.jpg');
+  form.append('image', workingBlob, workingBlob.type === 'image/png' ? 'subject.png' : 'subject.jpg');
   form.append('board', $('#board').value);
   generateButton.disabled = true;
-  message.textContent = '正在匹配 MARD 色卡并绘制色号…';
+  message.textContent = '正在交由 Image2 生成拼豆图纸，可能产生费用…';
   try {
-    const response = await fetch('/api/generate', { method: 'POST', body: form });
+    const response = await fetch('/api/ai/generate-pattern', { method: 'POST', body: form });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || '生成失败');
-    if (data.grid && data.colours) initializeEditor(data);
-    else {
-      $('#pattern').src = data.image;
-      $('#download').href = data.image;
-      $('#pattern').classList.remove('hidden');
-      canvas.classList.add('hidden');
-    }
+    if (!response.ok) throw new Error(data.detail || 'Image2 图纸生成失败');
+    showDirectImage2Pattern(data);
     $('#result').classList.remove('hidden');
-    message.textContent = `生成完成，共使用 ${data.palette.length} 个 MARD 色号，可点击格子手动修正。`;
+    message.textContent = (data.engine || 'Image2') + ' 图纸已生成，请下载并核对格线与色号。';
     $('#result').scrollIntoView({ behavior: 'smooth' });
   } catch (error) {
     message.textContent = error.message;
