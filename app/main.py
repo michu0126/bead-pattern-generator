@@ -272,7 +272,12 @@ async def generate(
         "empty": width * height - total,
         "palette": summary,
         "colours": [
-            {"code": item["code"], "name": item["name"], "rgb": list(item["rgb"])}
+            {
+                "code": item["code"],
+                "name": item["name"],
+                "hex": item["hex"],
+                "rgb": list(item["rgb"]),
+            }
             for item in BEAD_PALETTE
         ],
         "grid": grid,
