@@ -10,9 +10,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from .palette import BEAD_PALETTE
 
 
-OVERSAMPLE = 8
 MIN_CELL_COVERAGE = 0.08
-DARK_CELL_COVERAGE = 0.10
+DARK_CELL_COVERAGE = 0.07
+MAX_ANALYSIS_SIDE = 2048
+QUANTIZATION_LEVELS = 32
+_PALETTE_LUT_CACHE: dict[tuple[tuple[int, int, int], ...], np.ndarray] = {}
 
 
 def _srgb_to_lab(rgb: np.ndarray) -> np.ndarray:
@@ -33,16 +35,6 @@ def _srgb_to_lab(rgb: np.ndarray) -> np.ndarray:
         (116 * f[..., 1] - 16, 500 * (f[..., 0] - f[..., 1]), 200 * (f[..., 1] - f[..., 2])),
         axis=-1,
     )
-
-
-def _fit_image(image: Image.Image, width: int, height: int) -> Image.Image:
-    image = ImageOps.exif_transpose(image).convert("RGBA")
-    method = (
-        Image.Resampling.LANCZOS
-        if image.width > width or image.height > height
-        else Image.Resampling.NEAREST
-    )
-    return ImageOps.fit(image, (width, height), method=method)
 
 
 def _map_to_palette(pixels: np.ndarray, palette: list[dict]) -> np.ndarray:
@@ -76,6 +68,45 @@ def _map_to_palette(pixels: np.ndarray, palette: list[dict]) -> np.ndarray:
     no_candidate = ~np.any(np.isfinite(distances), axis=1)
     distances[no_candidate] = base_distances[no_candidate]
     return np.argmin(distances, axis=1).reshape(pixels.shape[:-1])
+
+
+def _palette_lookup(palette: list[dict]) -> np.ndarray:
+    """Map a compact RGB cube to palette indices once, then reuse it per source pixel."""
+    key = tuple(tuple(int(channel) for channel in item["rgb"]) for item in palette)
+    cached = _PALETTE_LUT_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    levels = np.arange(QUANTIZATION_LEVELS, dtype=np.uint8) * 8 + 4
+    levels[0] = 0
+    levels[-1] = 255
+    red, green, blue = np.meshgrid(levels, levels, levels, indexing="ij")
+    samples = np.stack((red, green, blue), axis=-1).reshape(-1, 3)
+    lookup = np.empty(len(samples), dtype=np.int16)
+    for start in range(0, len(samples), 4096):
+        stop = min(start + 4096, len(samples))
+        lookup[start:stop] = _map_to_palette(samples[start:stop], palette).reshape(-1)
+    _PALETTE_LUT_CACHE[key] = lookup
+    return lookup
+
+
+def _pixel_palette_indices(rgb: np.ndarray, palette: list[dict]) -> np.ndarray:
+    bins = rgb.astype(np.uint16) >> 3
+    keys = (bins[..., 0] * 1024 + bins[..., 1] * 32 + bins[..., 2]).astype(np.int32)
+    return _palette_lookup(palette)[keys]
+
+
+def _prepare_source(image: Image.Image) -> np.ndarray:
+    source = ImageOps.exif_transpose(image).convert("RGBA")
+    if max(source.size) > MAX_ANALYSIS_SIDE:
+        ratio = MAX_ANALYSIS_SIDE / max(source.size)
+        size = (
+            max(1, round(source.width * ratio)),
+            max(1, round(source.height * ratio)),
+        )
+        # NEAREST may discard detail on unusually large uploads, but never invents mixed RGB values.
+        source = source.resize(size, Image.Resampling.NEAREST)
+    return np.array(source, dtype=np.uint8, copy=True)
 
 
 def _exterior_white_mask(pixels: np.ndarray) -> np.ndarray:
@@ -118,78 +149,176 @@ def _exterior_white_mask(pixels: np.ndarray) -> np.ndarray:
     return exterior
 
 
-def _weighted_median(values: np.ndarray, weights: np.ndarray) -> int:
-    order = np.argsort(values, kind="stable")
-    ordered_weights = weights[order]
-    midpoint = ordered_weights.sum() / 2
-    index = int(np.searchsorted(np.cumsum(ordered_weights), midpoint, side="left"))
-    return int(values[order[min(index, len(order) - 1)]])
+def _local_label_agreement(labels: np.ndarray, active: np.ndarray) -> np.ndarray:
+    """Rate palette labels by local support so one-pixel antialias colours lose influence."""
+    matches = np.zeros(labels.shape, dtype=np.float32)
+    neighbours = np.zeros(labels.shape, dtype=np.float32)
+
+    valid = active[1:, :] & active[:-1, :]
+    same = valid & (labels[1:, :] == labels[:-1, :])
+    neighbours[1:, :] += valid
+    neighbours[:-1, :] += valid
+    matches[1:, :] += same
+    matches[:-1, :] += same
+
+    valid = active[:, 1:] & active[:, :-1]
+    same = valid & (labels[:, 1:] == labels[:, :-1])
+    neighbours[:, 1:] += valid
+    neighbours[:, :-1] += valid
+    matches[:, 1:] += same
+    matches[:, :-1] += same
+
+    agreement = np.ones(labels.shape, dtype=np.float32)
+    np.divide(matches, neighbours, out=agreement, where=neighbours > 0)
+    agreement[~active] = 0
+    return agreement
 
 
-def _representative_cell_colour(block: np.ndarray) -> tuple[int, int, int] | None:
-    """Choose a real dominant fill colour instead of averaging edge colours together."""
-    rgb = block[..., :3].reshape(-1, 3).astype(np.int16)
-    weights = block[..., 3].reshape(-1).astype(np.float64) / 255
-    active = weights >= 0.03
-    if not np.any(active) or weights.sum() / len(weights) < MIN_CELL_COVERAGE:
-        return None
-
-    rgb = rgb[active]
-    weights = weights[active]
-    dark = (np.max(rgb, axis=1) <= 64) & (np.mean(rgb, axis=1) <= 48)
-    dark_coverage = weights[dark].sum() / block[..., 3].size
-
-    if dark_coverage >= DARK_CELL_COVERAGE:
-        selected = dark
+def _fit_geometry(
+    source_width: int,
+    source_height: int,
+    target_width: int,
+    target_height: int,
+) -> tuple[float, float, float, float]:
+    """Return the centred source crop used to fill the requested bead board."""
+    target_ratio = target_width / target_height
+    source_ratio = source_width / source_height
+    if source_ratio > target_ratio:
+        crop_height = float(source_height)
+        crop_width = crop_height * target_ratio
+        left = (source_width - crop_width) / 2
+        top = 0.0
     else:
-        neutral = np.ptp(rgb, axis=1) <= 18
-        neutral_weight = weights[neutral].sum()
-        chromatic_weight = weights[~neutral].sum()
-        if neutral_weight >= chromatic_weight * 1.2:
-            selected = neutral
-        elif chromatic_weight >= neutral_weight * 1.2:
-            selected = ~neutral
-        else:
-            selected = np.ones(len(rgb), dtype=bool)
-
-    if not np.any(selected):
-        selected = np.ones(len(rgb), dtype=bool)
-    chosen = rgb[selected]
-    chosen_weights = weights[selected]
-    colour = np.array(
-        [_weighted_median(chosen[:, channel], chosen_weights) for channel in range(3)],
-        dtype=np.int16,
-    )
-
-    spread = int(np.ptp(colour))
-    brightness = float(np.mean(colour))
-    if spread <= 10 and brightness <= 30:
-        colour[:] = 0
-    elif spread <= 10 and brightness >= 238:
-        colour[:] = 255
-    return tuple(int(value) for value in colour)
+        crop_width = float(source_width)
+        crop_height = crop_width / target_ratio
+        left = 0.0
+        top = (source_height - crop_height) / 2
+    return left, top, crop_width, crop_height
 
 
-def _sample_cells(image: Image.Image, width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
-    """Sample each bead from an oversampled, background-aware block."""
-    scale = OVERSAMPLE
-    fitted = _fit_image(image, width * scale, height * scale)
-    pixels = np.array(fitted, dtype=np.uint8, copy=True)
+def _axis_overlaps(length: int, start: float, end: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return source-pixel indices and their exact geometric overlap with one cell."""
+    start = max(0.0, min(float(length), start))
+    end = max(start, min(float(length), end))
+    first = max(0, int(math.floor(start)))
+    last = min(length, int(math.ceil(end)))
+    indices = np.arange(first, last, dtype=np.int32)
+    if not len(indices):
+        index = min(max(int(math.floor(start)), 0), length - 1)
+        return np.array([index], dtype=np.int32), np.array([0.0], dtype=np.float64)
+    overlap = np.minimum(indices + 1.0, end) - np.maximum(indices.astype(np.float64), start)
+    valid = overlap > 1e-12
+    return indices[valid], overlap[valid]
+
+
+def _palette_luminance(palette: list[dict]) -> np.ndarray:
+    rgb = np.array([item["rgb"] for item in palette], dtype=np.float64)
+    return 0.2126 * rgb[:, 0] + 0.7152 * rgb[:, 1] + 0.0722 * rgb[:, 2]
+
+
+def _choose_cell_palette(
+    labels: np.ndarray,
+    alpha: np.ndarray,
+    agreement: np.ndarray,
+    area: np.ndarray,
+    center_weight: np.ndarray,
+    cell_area: float,
+    palette_size: int,
+    dark_palette: np.ndarray,
+) -> int:
+    raw_weight = area * (alpha.astype(np.float64) / 255.0)
+    coverage = raw_weight.sum() / max(cell_area, 1e-12)
+    active = (labels >= 0) & (raw_weight > 1e-12)
+    if coverage < MIN_CELL_COVERAGE or not np.any(active):
+        return -1
+
+    active_labels = labels[active]
+    dark = dark_palette[active_labels]
+    dark_coverage = raw_weight[active][dark].sum() / max(cell_area, 1e-12)
+    if dark_coverage >= DARK_CELL_COVERAGE:
+        votes = np.bincount(
+            active_labels[dark],
+            weights=(raw_weight * center_weight)[active][dark],
+            minlength=palette_size,
+        )
+    else:
+        reliability = 0.20 + 0.80 * np.square(agreement.astype(np.float64))
+        votes = np.bincount(
+            active_labels,
+            weights=(raw_weight * center_weight * reliability)[active],
+            minlength=palette_size,
+        )
+
+    highest = float(votes.max())
+    if highest <= 0:
+        return -1
+    candidates = np.flatnonzero(votes >= highest * 0.96)
+    if len(candidates) == 1:
+        return int(candidates[0])
+
+    # When two real colours divide a cell almost equally, use the closest active
+    # source pixel to the cell centre. It resolves the boundary without blending.
+    distances = np.where(active, -center_weight, np.inf)
+    for flat_index in np.argsort(distances, axis=None, kind="stable"):
+        row, column = np.unravel_index(flat_index, labels.shape)
+        label = int(labels[row, column])
+        if label in candidates:
+            return label
+    return int(candidates[0])
+
+
+def _sample_cells(image: Image.Image, width: int, height: int, palette: list[dict]) -> np.ndarray:
+    """Choose one palette colour per bead by exact source-pixel area voting."""
+    pixels = _prepare_source(image)
     pixels[_exterior_white_mask(pixels), 3] = 0
 
-    colours = np.zeros((height, width, 3), dtype=np.uint8)
-    occupied = np.zeros((height, width), dtype=bool)
+    active = pixels[..., 3] >= 8
+    labels = _pixel_palette_indices(pixels[..., :3], palette)
+    labels[~active] = -1
+    agreement = _local_label_agreement(labels, active)
+    dark_palette = _palette_luminance(palette) <= 55
+
+    left, top, crop_width, crop_height = _fit_geometry(
+        pixels.shape[1],
+        pixels.shape[0],
+        width,
+        height,
+    )
+    indices = np.full((height, width), -1, dtype=np.int16)
+
     for row in range(height):
+        y0 = top + row * crop_height / height
+        y1 = top + (row + 1) * crop_height / height
+        y_indices, y_overlap = _axis_overlaps(pixels.shape[0], y0, y1)
+        y_center = (y0 + y1) / 2
+        y_radius = max((y1 - y0) / 2, 1e-12)
+        y_distance = (y_indices + 0.5 - y_center) / y_radius
+
         for column in range(width):
-            block = pixels[
-                row * scale : (row + 1) * scale,
-                column * scale : (column + 1) * scale,
-            ]
-            colour = _representative_cell_colour(block)
-            if colour is not None:
-                colours[row, column] = colour
-                occupied[row, column] = True
-    return colours, occupied
+            x0 = left + column * crop_width / width
+            x1 = left + (column + 1) * crop_width / width
+            x_indices, x_overlap = _axis_overlaps(pixels.shape[1], x0, x1)
+            area = np.outer(y_overlap, x_overlap)
+            cell_area = (y1 - y0) * (x1 - x0)
+
+            x_center = (x0 + x1) / 2
+            x_radius = max((x1 - x0) / 2, 1e-12)
+            x_distance = (x_indices + 0.5 - x_center) / x_radius
+            distance_squared = y_distance[:, None] ** 2 + x_distance[None, :] ** 2
+            center_weight = 1.0 + 0.35 * np.clip(1.0 - distance_squared, 0.0, 1.0)
+
+            selection = np.ix_(y_indices, x_indices)
+            indices[row, column] = _choose_cell_palette(
+                labels[selection],
+                pixels[..., 3][selection],
+                agreement[selection],
+                area,
+                center_weight,
+                cell_area,
+                len(palette),
+                dark_palette,
+            )
+    return indices
 
 
 def _text_colour(rgb: tuple[int, int, int]) -> str:
@@ -230,13 +359,12 @@ def _render_pattern(indices: np.ndarray, palette: list[dict]) -> bytes:
 
 
 def generate_pattern(image: Image.Image, width: int, height: int) -> tuple[bytes, list[dict], list[list[str | None]]]:
-    sampled, occupied = _sample_cells(image, width, height)
+    palette = BEAD_PALETTE
+    indices = _sample_cells(image, width, height, palette)
+    occupied = indices >= 0
     if not np.any(occupied):
         raise ValueError("抠图结果中没有可用的前景")
 
-    palette = BEAD_PALETTE
-    indices = np.full((height, width), -1, dtype=np.int16)
-    indices[occupied] = _map_to_palette(sampled[occupied], palette)
     counts = Counter(indices[occupied].tolist())
     summary = [
         {
