@@ -65,6 +65,8 @@
       addDetail(details, '请求 ID', entry.response?.request_id);
       addDetail(details, '输入大小', entry.input?.bytes === undefined ? null : entry.input.bytes + ' bytes');
       addDetail(details, '输出大小', entry.response?.output_bytes === undefined ? null : entry.response.output_bytes + ' bytes');
+      addDetail(details, '透明像素', entry.response?.alpha?.transparent_percent === undefined ? null : entry.response.alpha.transparent_percent + '%');
+      addDetail(details, 'Alpha 范围', entry.response?.alpha ? entry.response.alpha.alpha_min + '–' + entry.response.alpha.alpha_max : null);
       addDetail(details, '质量', entry.request?.quality);
       addDetail(details, '错误', entry.error);
 

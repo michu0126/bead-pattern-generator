@@ -65,17 +65,19 @@ async function loadConfig() {
     if (!response.ok) throw new Error();
     const data = await response.json();
     const option = recognitionMode.querySelector('option[value="openai"]');
+    const containerOption = recognitionMode.querySelector('option[value="container"]');
+    if (containerOption && data.local_cutout_enabled) {
+      containerOption.textContent = '容器本地抠图（' + (data.local_cutout_model || '离线分割模型') + ' · 不耗 Token）';
+    }
     if (data.ai_enabled) {
       option.disabled = false;
-      option.textContent = `${data.vision_model || '识图模型'} 识图 + ${data.ai_model} 抠图`;
-      $('#ai-status').textContent = '云端模式先分析主体选项，再由图像模型执行抠图，可能产生费用。';
+      option.textContent = (data.vision_model || '识图模型') + ' 识图 + ' + data.ai_model + ' 抠图';
+      $('#ai-status').textContent = '推荐使用容器本地抠图：不发送图片、不耗 Token；云端模式先分析主体选项，再由图像模型执行抠图，可能产生费用。';
     } else {
       option.disabled = true;
       option.textContent = 'OpenAI 兼容 API（未配置）';
-      if (recognitionMode.value === 'openai') recognitionMode.value = 'local';
-      $('#ai-status').textContent = data.settings_enabled
-        ? '尚未保存 API Key，请打开页面顶部的“API 设置”。'
-        : '容器尚未设置 SETTINGS_PASSWORD，API 设置页面处于锁定状态。';
+      if (recognitionMode.value === 'openai') recognitionMode.value = 'container';
+      $('#ai-status').textContent = '推荐使用容器本地抠图：不发送图片、不耗 Token。浏览器文字识图和云端模式可按需要选择。';
     }
   } catch (_) {
     $('#ai-status').textContent = '无法读取 AI 配置，本地识图仍可正常使用。';
@@ -476,6 +478,15 @@ async function runOpenAICutout() {
   showCutoutResult(await dataUrlToBlob(data.image), (data.model || '图像模型') + ' 抠图完成，请确认结果。');
 }
 
+async function runContainerCutout() {
+  const form = new FormData();
+  form.append('image', sourceBlob, sourceBlob.type === 'image/png' ? 'image.png' : 'image.jpg');
+  const response = await fetch('/api/local-cutout', { method: 'POST', body: form });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || '容器本地抠图失败');
+  showCutoutResult(await dataUrlToBlob(data.image), (data.engine || '容器本地分割') + ' 完成，请确认结果。');
+}
+
 async function runLocalCutout() {
   const { RawImage, tokenizer, processor, model } = await getClipseg();
   const inputUrl = URL.createObjectURL(sourceBlob);
@@ -489,19 +500,24 @@ async function runLocalCutout() {
 
 cutoutButton.addEventListener('click', async () => {
   if (!sourceBlob) { cutoutMessage.textContent = '请先选择一张图片。'; return; }
-  if (!cutoutPrompt.value.trim()) {
+  if (!cutoutPrompt.value.trim() && recognitionMode.value === 'local') {
     workingBlob = sourceBlob;
     proposedCutout = null;
     aiSubjectPanel.classList.add('hidden');
     cutoutResult.classList.add('hidden');
-    cutoutMessage.textContent = '没有填写主体描述，已直接采用原图。';
+    cutoutMessage.textContent = '浏览器文字识图需要主体描述；未填写时已直接采用原图。';
     message.textContent = '已采用原图，可以生成图纸。';
     return;
   }
   cutoutButton.disabled = true;
-  cutoutMessage.textContent = recognitionMode.value === 'openai' ? '正在分析图片中的主体选项…' : '正在准备本地识别模型，首次使用可能需要几分钟…';
+  cutoutMessage.textContent = recognitionMode.value === 'openai'
+    ? '正在分析图片中的主体选项…'
+    : recognitionMode.value === 'container'
+      ? '容器正在运行本地分割模型，首次处理可能需要十几秒…'
+      : '正在准备浏览器识别模型，首次使用可能需要几分钟…';
   try {
     if (recognitionMode.value === 'openai') await runOpenAIAnalysis();
+    else if (recognitionMode.value === 'container') await runContainerCutout();
     else await runLocalCutout();
   } catch (error) {
     if (recognitionMode.value === 'local') clipsegPromise = null;
