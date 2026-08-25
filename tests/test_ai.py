@@ -5,7 +5,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from app.ai import AIServiceError, ai_configured, create_pattern_reference, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
+from app.ai import AIServiceError, ai_configured, create_pattern_reference, extract_direct_pattern_materials, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
 from app.api_logs import list_api_calls
 
 
@@ -231,3 +231,25 @@ def test_image2_direct_pattern_request_includes_board_and_mard_palette(monkeypat
     log = list_api_calls()[0]
     assert log["operation"] == "image_direct_pattern_generation"
     assert log["input"]["board"] == "52x52"
+
+
+def test_vision_material_reader_returns_only_known_mard_codes(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        headers = {}
+        def json(self):
+            return {"choices": [{"message": {"content": '{"materials":[{"code":"H2","count":5},{"code":"NOPE","count":9}]}'}}]}
+
+    class FakeClient:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return None
+        async def post(self, url, *, headers, json):
+            assert json["model"] == "gpt-5.5"
+            assert "including enclosed white regions" in json["messages"][0]["content"][0]["text"]
+            return FakeResponse()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "private-test-key")
+    monkeypatch.setattr("app.ai.httpx.AsyncClient", FakeClient)
+    materials = asyncio.run(extract_direct_pattern_materials(b"chart", 52, 52))
+    assert materials == [{"code": "H2", "count": 5}]
