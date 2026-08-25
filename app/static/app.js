@@ -9,9 +9,6 @@ const sourcePreview = $('#source-preview');
 const cutoutButton = $('#cutout');
 const cutoutPrompt = $('#cutout-prompt');
 const cutoutMessage = $('#cutout-message');
-const aiSubjectPanel = $('#ai-subject-panel');
-const aiSubjectOptions = $('#ai-subject-options');
-const applyAiCutoutButton = $('#apply-ai-cutout');
 const cutoutResult = $('#cutout-result');
 const cutoutPreview = $('#cutout-preview');
 const recognitionMode = $('#recognition-mode');
@@ -26,10 +23,8 @@ const context = canvas.getContext('2d');
 let sourceBlob = null;
 let workingBlob = null;
 let proposedCutout = null;
-let selectedAISubject = null;
 let sourceUrl = null;
 let cutoutUrl = null;
-let clipsegPromise = null;
 let patternGrid = [];
 let availableColours = [];
 let colourByCode = new Map();
@@ -64,28 +59,21 @@ async function loadConfig() {
     const response = await fetch('/api/config', { cache: 'no-store' });
     if (!response.ok) throw new Error();
     const data = await response.json();
-    const option = recognitionMode.querySelector('option[value="openai"]');
     const image2Option = recognitionMode.querySelector('option[value="image2"]');
     const containerOption = recognitionMode.querySelector('option[value="container"]');
-    if (containerOption && data.local_cutout_enabled) {
-      containerOption.textContent = '容器本地抠图（' + (data.local_cutout_model || '离线分割模型') + ' · 不耗 Token）';
-    }
+    if (containerOption && data.local_cutout_enabled) containerOption.textContent = '本地抠图';
     if (data.ai_enabled) {
-      option.disabled = false;
       image2Option.disabled = false;
-      image2Option.textContent = (data.ai_model || 'Image2') + ' 色块优化（消耗 Token）';
-      option.textContent = (data.vision_model || '识图模型') + ' 识图 + ' + data.ai_model + ' 抠图';
-      $('#ai-status').textContent = '推荐使用容器本地抠图：不发送图片、不耗 Token；云端模式先分析主体选项，再由图像模型执行抠图，可能产生费用。';
+      image2Option.textContent = 'AI 抠图';
+      $('#ai-status').textContent = '本地抠图不发送图片、不耗 Token；AI 抠图会发送图片到已配置的兼容 API，并可能产生费用。';
     } else {
-      option.disabled = true;
       image2Option.disabled = true;
-      image2Option.textContent = 'Image2 色块优化（未配置）';
-      option.textContent = 'OpenAI 兼容 API（未配置）';
-      if (recognitionMode.value === 'openai' || recognitionMode.value === 'image2') recognitionMode.value = 'container';
-      $('#ai-status').textContent = '推荐使用容器本地抠图：不发送图片、不耗 Token。浏览器文字识图和云端模式可按需要选择。';
+      image2Option.textContent = 'AI 抠图（未配置）';
+      if (recognitionMode.value === 'image2') recognitionMode.value = 'container';
+      $('#ai-status').textContent = '本地抠图不发送图片、不耗 Token。配置 API 后可使用 AI 抠图。';
     }
   } catch (_) {
-    $('#ai-status').textContent = '无法读取 AI 配置，本地识图仍可正常使用。';
+    $('#ai-status').textContent = '无法读取 AI 配置，本地抠图仍可正常使用。';
   }
 }
 
@@ -356,83 +344,10 @@ fileInput.addEventListener('change', () => selectFile(fileInput.files[0]));
 dropZone.addEventListener('drop', event => selectFile(event.dataTransfer.files[0]));
 
 recognitionMode.addEventListener('change', () => {
-  $('#ai-status').textContent = recognitionMode.value === 'openai'
-    ? '当前图片将在点击处理后发送到已配置的兼容 API，并可能产生费用。'
-    : recognitionMode.value === 'image2'
-      ? 'Image2 会生成色块更清晰的参考图；请预览确认后再用本地 MARD 算法生成图纸，可能产生费用。'
-      : '本地模式在浏览器内运行，图片不会发送到第三方。';
+  $('#ai-status').textContent = recognitionMode.value === 'image2'
+    ? 'AI 抠图会发送图片到已配置的兼容 API，并可能产生费用。'
+    : '本地抠图在容器内运行，图片不会发送到第三方。';
 });
-
-function promptForModel(text) {
-  const replacements = [
-    [/人物|人像|人/g, 'person'], [/白色的猫|白猫/g, 'white cat'], [/猫/g, 'cat'], [/狗/g, 'dog'],
-    [/红色汽车|红色的车/g, 'red car'], [/汽车|车辆|车/g, 'car'], [/花朵|花/g, 'flower'],
-    [/鸟/g, 'bird'], [/建筑|房子/g, 'building'], [/食物/g, 'food'], [/玩具/g, 'toy'],
-  ];
-  let translated = text.trim();
-  replacements.forEach(([pattern, value]) => { translated = translated.replace(pattern, value); });
-  return translated;
-}
-
-async function getClipseg() {
-  if (!clipsegPromise) {
-    clipsegPromise = (async () => {
-      const module = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2/+esm');
-      const modelId = 'Xenova/clipseg-rd64-refined';
-      const [tokenizer, processor, model] = await Promise.all([
-        module.AutoTokenizer.from_pretrained(modelId),
-        module.AutoProcessor.from_pretrained(modelId),
-        module.CLIPSegForImageSegmentation.from_pretrained(modelId, { dtype: 'q8' }),
-      ]);
-      return { ...module, tokenizer, processor, model };
-    })();
-  }
-  return clipsegPromise;
-}
-
-function loadHtmlImage(blob) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob);
-    const image = new Image();
-    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
-    image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('无法读取图片')); };
-    image.src = url;
-  });
-}
-
-async function maskToPng(blob, logits) {
-  const original = await loadHtmlImage(blob);
-  const maskHeight = logits.dims.at(-2);
-  const maskWidth = logits.dims.at(-1);
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = maskWidth;
-  maskCanvas.height = maskHeight;
-  const maskContext = maskCanvas.getContext('2d');
-  const maskImage = maskContext.createImageData(maskWidth, maskHeight);
-  for (let index = 0; index < maskWidth * maskHeight; index += 1) {
-    const probability = 1 / (1 + Math.exp(-logits.data[index]));
-    const alpha = Math.max(0, Math.min(255, Math.round((probability - 0.28) / 0.42 * 255)));
-    const offset = index * 4;
-    maskImage.data[offset] = 255;
-    maskImage.data[offset + 1] = 255;
-    maskImage.data[offset + 2] = 255;
-    maskImage.data[offset + 3] = alpha;
-  }
-  maskContext.putImageData(maskImage, 0, 0);
-
-  const resultCanvas = document.createElement('canvas');
-  resultCanvas.width = original.naturalWidth;
-  resultCanvas.height = original.naturalHeight;
-  const resultContext = resultCanvas.getContext('2d');
-  resultContext.drawImage(original, 0, 0);
-  resultContext.globalCompositeOperation = 'destination-in';
-  resultContext.imageSmoothingEnabled = true;
-  resultContext.drawImage(maskCanvas, 0, 0, resultCanvas.width, resultCanvas.height);
-  return new Promise((resolve, reject) => resultCanvas.toBlob(
-    value => value ? resolve(value) : reject(new Error('抠图结果生成失败')),
-    'image/png',
-  ));
-}
 
 async function dataUrlToBlob(dataUrl) {
   const response = await fetch(dataUrl);
@@ -447,42 +362,6 @@ function showCutoutResult(blob, description) {
   cutoutResult.classList.remove('hidden');
   cutoutMessage.textContent = description;
   cutoutResult.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-
-async function runOpenAIAnalysis() {
-  const form = new FormData();
-  form.append('image', sourceBlob, sourceBlob.type === 'image/png' ? 'image.png' : 'image.jpg');
-  form.append('prompt', cutoutPrompt.value.trim());
-  const response = await fetch('/api/ai/subjects', { method: 'POST', body: form });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || '云端识图失败');
-  selectedAISubject = null;
-  aiSubjectOptions.replaceChildren();
-  (data.subjects || []).forEach(subject => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'subject-choice';
-    button.textContent = subject.label;
-    button.addEventListener('click', () => {
-      selectedAISubject = subject;
-      aiSubjectOptions.querySelectorAll('button').forEach(item => item.classList.toggle('selected', item === button));
-      applyAiCutoutButton.disabled = false;
-    });
-    aiSubjectOptions.append(button);
-  });
-  aiSubjectPanel.classList.remove('hidden');
-  cutoutMessage.textContent = (data.model || '识图模型') + ' 已给出主体选项，请选择后再抠图。';
-}
-
-async function runOpenAICutout() {
-  if (!selectedAISubject) throw new Error('请先选择要抠出的主体。');
-  const form = new FormData();
-  form.append('image', sourceBlob, sourceBlob.type === 'image/png' ? 'image.png' : 'image.jpg');
-  form.append('prompt', selectedAISubject.prompt);
-  const response = await fetch('/api/ai/cutout', { method: 'POST', body: form });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || '图像模型抠图失败');
-  showCutoutResult(await dataUrlToBlob(data.image), (data.model || '图像模型') + ' 抠图完成，请确认结果。');
 }
 
 async function runImage2PatternReference() {
@@ -504,17 +383,6 @@ async function runContainerCutout() {
   showCutoutResult(await dataUrlToBlob(data.image), (data.engine || '容器本地分割') + ' 完成，请确认结果。');
 }
 
-async function runLocalCutout() {
-  const { RawImage, tokenizer, processor, model } = await getClipseg();
-  const inputUrl = URL.createObjectURL(sourceBlob);
-  let rawImage;
-  try { rawImage = await RawImage.read(inputUrl); } finally { URL.revokeObjectURL(inputUrl); }
-  const textInputs = tokenizer([promptForModel(cutoutPrompt.value)], { padding: true, truncation: true });
-  const imageInputs = await processor(rawImage);
-  const { logits } = await model({ ...textInputs, ...imageInputs });
-  showCutoutResult(await maskToPng(sourceBlob, logits), '本地识图完成，请确认结果。');
-}
-
 cutoutButton.addEventListener('click', async () => {
   if (!sourceBlob) { cutoutMessage.textContent = '请先选择一张图片。'; return; }
   if (!cutoutPrompt.value.trim() && recognitionMode.value === 'local') {
@@ -528,34 +396,19 @@ cutoutButton.addEventListener('click', async () => {
   }
   cutoutButton.disabled = true;
   cutoutMessage.textContent = recognitionMode.value === 'openai'
-    ? '正在分析图片中的主体选项…'
-    : recognitionMode.value === 'image2'
-      ? 'Image2 正在生成色块清晰的参考图，可能产生费用…'
-      : recognitionMode.value === 'container'
-        ? '容器正在运行本地分割模型，首次处理可能需要十几秒…'
-        : '正在准备浏览器识别模型，首次使用可能需要几分钟…';
+    ? '正在分析图cutoutButton.addEventListener('click', async () => {
+  if (!sourceBlob) { cutoutMessage.textContent = '请先选择一张图片。'; return; }
+  cutoutButton.disabled = true;
+  cutoutMessage.textContent = recognitionMode.value === 'image2'
+    ? 'AI 正在处理图片，可能产生费用…'
+    : '容器正在运行本地抠图模型，首次处理可能需要十几秒…';
   try {
-    if (recognitionMode.value === 'openai') await runOpenAIAnalysis();
-    else if (recognitionMode.value === 'image2') await runImage2PatternReference();
-    else if (recognitionMode.value === 'container') await runContainerCutout();
-    else await runLocalCutout();
+    if (recognitionMode.value === 'image2') await runImage2PatternReference();
+    else await runContainerCutout();
   } catch (error) {
-    if (recognitionMode.value === 'local') clipsegPromise = null;
-    cutoutMessage.textContent = '识别失败：' + (error.message || '请检查网络后重试');
+    cutoutMessage.textContent = '处理失败：' + (error.message || '请检查网络后重试');
   } finally {
     cutoutButton.disabled = false;
-  }
-});
-
-applyAiCutoutButton.addEventListener('click', async () => {
-  applyAiCutoutButton.disabled = true;
-  cutoutMessage.textContent = '正在使用图像编辑模型抠图…';
-  try {
-    await runOpenAICutout();
-  } catch (error) {
-    cutoutMessage.textContent = '抠图失败：' + (error.message || '请检查网络后重试');
-  } finally {
-    applyAiCutoutButton.disabled = !selectedAISubject;
   }
 });
 
