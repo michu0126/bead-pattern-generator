@@ -13,6 +13,7 @@ import httpx
 
 DEFAULT_API_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-image-2"
+DEFAULT_VISION_MODEL = "gpt-5.5"
 DEFAULT_QUALITY = "medium"
 
 
@@ -29,6 +30,7 @@ class AISettings:
     api_url: str
     api_key: str
     model: str
+    vision_model: str
     quality: str
 
     @property
@@ -36,8 +38,16 @@ class AISettings:
         return image_edit_url(self.api_url)
 
     @property
+    def chat_url(self) -> str:
+        return chat_completion_url(self.api_url)
+
+    @property
     def enabled(self) -> bool:
         return bool(self.api_url and self.api_key and self.model)
+
+    @property
+    def vision_enabled(self) -> bool:
+        return bool(self.api_url and self.api_key and self.vision_model)
 
 
 def _settings_path() -> Path:
@@ -57,22 +67,27 @@ def normalize_api_url(value: str) -> str:
         raise SettingsError("API URL 不能包含用户名或密码")
     if parsed.query or parsed.fragment:
         raise SettingsError("API URL 不能包含查询参数或片段")
-    clean_path = parsed.path.rstrip("/")
-    return urlunsplit((parsed.scheme, parsed.netloc, clean_path, "", ""))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
+
+
+def _api_base_url(api_url: str) -> str:
+    normalized = normalize_api_url(api_url)
+    for suffix in ("/images/edits", "/images/generations", "/chat/completions", "/responses", "/models"):
+        if normalized.endswith(suffix):
+            return normalized[: -len(suffix)]
+    return normalized
 
 
 def image_edit_url(api_url: str) -> str:
-    normalized = normalize_api_url(api_url)
-    if normalized.endswith("/images/edits"):
-        return normalized
-    return f"{normalized}/images/edits"
+    return f"{_api_base_url(api_url)}/images/edits"
+
+
+def chat_completion_url(api_url: str) -> str:
+    return f"{_api_base_url(api_url)}/chat/completions"
 
 
 def models_url(api_url: str) -> str:
-    normalized = normalize_api_url(api_url)
-    if normalized.endswith("/images/edits"):
-        normalized = normalized[: -len("/images/edits")]
-    return f"{normalized}/models"
+    return f"{_api_base_url(api_url)}/models"
 
 
 def _environment_settings() -> AISettings:
@@ -80,8 +95,13 @@ def _environment_settings() -> AISettings:
         api_url=os.getenv("OPENAI_API_URL", DEFAULT_API_URL).strip() or DEFAULT_API_URL,
         api_key=os.getenv("OPENAI_API_KEY", "").strip(),
         model=os.getenv("OPENAI_IMAGE_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL,
+        vision_model=os.getenv("OPENAI_VISION_MODEL", DEFAULT_VISION_MODEL).strip() or DEFAULT_VISION_MODEL,
         quality=os.getenv("OPENAI_IMAGE_QUALITY", DEFAULT_QUALITY).strip() or DEFAULT_QUALITY,
     )
+
+
+def _looks_like_vision_model(model: str) -> bool:
+    return model.lower().startswith(("gpt-5", "gpt-4", "o1", "o3", "o4"))
 
 
 def load_settings() -> AISettings:
@@ -96,10 +116,19 @@ def load_settings() -> AISettings:
 
     if not isinstance(raw, dict):
         raise SettingsError("API 设置文件格式无效")
+
+    saved_model = str(raw.get("model", fallback.model)).strip() or fallback.model
+    saved_vision = str(raw.get("vision_model", "")).strip()
+    # v0.7.0 以前只有一个 model 字段：把误填的 gpt-5.5 自动迁移为识图模型。
+    if not saved_vision and _looks_like_vision_model(saved_model):
+        saved_vision = saved_model
+        saved_model = fallback.model
+
     return AISettings(
         api_url=str(raw.get("api_url", fallback.api_url)).strip() or fallback.api_url,
         api_key=str(raw.get("api_key", fallback.api_key)).strip(),
-        model=str(raw.get("model", fallback.model)).strip() or fallback.model,
+        model=saved_model,
+        vision_model=saved_vision or fallback.vision_model,
         quality=str(raw.get("quality", fallback.quality)).strip() or fallback.quality,
     )
 
@@ -141,9 +170,11 @@ def public_settings(settings: AISettings) -> dict:
     return {
         "api_url": settings.api_url,
         "model": settings.model,
+        "vision_model": settings.vision_model,
         "quality": settings.quality,
         "has_api_key": bool(settings.api_key),
         "enabled": settings.enabled,
+        "vision_enabled": settings.vision_enabled,
     }
 
 
@@ -152,10 +183,7 @@ async def test_api_connection(settings: AISettings) -> dict:
         raise SettingsError("请先输入 API Key")
     headers = {"Authorization": f"Bearer {settings.api_key}"}
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(20.0, connect=10.0),
-            follow_redirects=False,
-        ) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0), follow_redirects=False) as client:
             response = await client.get(models_url(settings.api_url), headers=headers)
     except httpx.RequestError as error:
         raise SettingsError("无法连接该 API 地址，请检查 URL、网络或证书") from error
@@ -172,16 +200,7 @@ async def test_api_connection(settings: AISettings) -> dict:
     try:
         body = response.json()
         raw_models = body.get("data", []) if isinstance(body, dict) else []
-        models = sorted({
-            str(item.get("id", "")).strip()
-            for item in raw_models
-            if isinstance(item, dict) and str(item.get("id", "")).strip()
-        })
+        models = sorted({str(item.get("id", "")).strip() for item in raw_models if isinstance(item, dict) and str(item.get("id", "")).strip()})
     except ValueError:
         models = []
-    return {
-        "ok": True,
-        "message": f"连接成功，/models 返回 {len(models)} 个模型",
-        "models": models,
-    }
-
+    return {"ok": True, "message": f"连接成功，/models 返回 {len(models)} 个模型", "models": models}
