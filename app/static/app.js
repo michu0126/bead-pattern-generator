@@ -65,18 +65,23 @@ async function loadConfig() {
     if (!response.ok) throw new Error();
     const data = await response.json();
     const option = recognitionMode.querySelector('option[value="openai"]');
+    const image2Option = recognitionMode.querySelector('option[value="image2"]');
     const containerOption = recognitionMode.querySelector('option[value="container"]');
     if (containerOption && data.local_cutout_enabled) {
       containerOption.textContent = '容器本地抠图（' + (data.local_cutout_model || '离线分割模型') + ' · 不耗 Token）';
     }
     if (data.ai_enabled) {
       option.disabled = false;
+      image2Option.disabled = false;
+      image2Option.textContent = (data.ai_model || 'Image2') + ' 色块优化（消耗 Token）';
       option.textContent = (data.vision_model || '识图模型') + ' 识图 + ' + data.ai_model + ' 抠图';
       $('#ai-status').textContent = '推荐使用容器本地抠图：不发送图片、不耗 Token；云端模式先分析主体选项，再由图像模型执行抠图，可能产生费用。';
     } else {
       option.disabled = true;
+      image2Option.disabled = true;
+      image2Option.textContent = 'Image2 色块优化（未配置）';
       option.textContent = 'OpenAI 兼容 API（未配置）';
-      if (recognitionMode.value === 'openai') recognitionMode.value = 'container';
+      if (recognitionMode.value === 'openai' || recognitionMode.value === 'image2') recognitionMode.value = 'container';
       $('#ai-status').textContent = '推荐使用容器本地抠图：不发送图片、不耗 Token。浏览器文字识图和云端模式可按需要选择。';
     }
   } catch (_) {
@@ -352,8 +357,10 @@ dropZone.addEventListener('drop', event => selectFile(event.dataTransfer.files[0
 
 recognitionMode.addEventListener('change', () => {
   $('#ai-status').textContent = recognitionMode.value === 'openai'
-    ? '当前图片将在点击智能抠图后发送到已配置的兼容 API，并可能产生费用。'
-    : '本地模式在浏览器内运行，图片不会发送到第三方。';
+    ? '当前图片将在点击处理后发送到已配置的兼容 API，并可能产生费用。'
+    : recognitionMode.value === 'image2'
+      ? 'Image2 会生成色块更清晰的参考图；请预览确认后再用本地 MARD 算法生成图纸，可能产生费用。'
+      : '本地模式在浏览器内运行，图片不会发送到第三方。';
 });
 
 function promptForModel(text) {
@@ -478,6 +485,16 @@ async function runOpenAICutout() {
   showCutoutResult(await dataUrlToBlob(data.image), (data.model || '图像模型') + ' 抠图完成，请确认结果。');
 }
 
+async function runImage2PatternReference() {
+  const input = workingBlob || sourceBlob;
+  const form = new FormData();
+  form.append('image', input, input.type === 'image/png' ? 'image.png' : 'image.jpg');
+  const response = await fetch('/api/ai/pattern-reference', { method: 'POST', body: form });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Image2 色块优化失败');
+  showCutoutResult(await dataUrlToBlob(data.image), (data.model || 'Image2') + ' 色块优化完成，请确认结果。');
+}
+
 async function runContainerCutout() {
   const form = new FormData();
   form.append('image', sourceBlob, sourceBlob.type === 'image/png' ? 'image.png' : 'image.jpg');
@@ -512,11 +529,14 @@ cutoutButton.addEventListener('click', async () => {
   cutoutButton.disabled = true;
   cutoutMessage.textContent = recognitionMode.value === 'openai'
     ? '正在分析图片中的主体选项…'
-    : recognitionMode.value === 'container'
-      ? '容器正在运行本地分割模型，首次处理可能需要十几秒…'
-      : '正在准备浏览器识别模型，首次使用可能需要几分钟…';
+    : recognitionMode.value === 'image2'
+      ? 'Image2 正在生成色块清晰的参考图，可能产生费用…'
+      : recognitionMode.value === 'container'
+        ? '容器正在运行本地分割模型，首次处理可能需要十几秒…'
+        : '正在准备浏览器识别模型，首次使用可能需要几分钟…';
   try {
     if (recognitionMode.value === 'openai') await runOpenAIAnalysis();
+    else if (recognitionMode.value === 'image2') await runImage2PatternReference();
     else if (recognitionMode.value === 'container') await runContainerCutout();
     else await runLocalCutout();
   } catch (error) {
@@ -543,8 +563,8 @@ $('#use-cutout').addEventListener('click', () => {
   if (!proposedCutout) return;
   workingBlob = proposedCutout;
   cutoutResult.classList.add('hidden');
-  cutoutMessage.textContent = '已采用抠图结果，透明区域不会放豆。';
-  message.textContent = '已采用抠图结果，可以生成图纸。';
+  cutoutMessage.textContent = '已采用处理结果，透明区域不会放豆。';
+  message.textContent = '已采用处理结果，可以生成图纸。';
 });
 
 $('#discard-cutout').addEventListener('click', () => {
