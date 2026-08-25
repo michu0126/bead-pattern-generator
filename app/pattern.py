@@ -258,7 +258,7 @@ def _focused_geometry(
     """Zoom small boards around the remaining subject without clipping it."""
     source_height, source_width = pixels.shape[:2]
     normal = _fit_geometry(source_width, source_height, target_width, target_height)
-    if max(target_width, target_height) > 52:
+    if not (50 <= target_width <= 52 and 50 <= target_height <= 52):
         return normal
     active = pixels[..., 3] >= 32
     rows, columns = np.nonzero(active)
