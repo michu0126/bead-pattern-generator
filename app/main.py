@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from .ai import AIServiceError, ai_configured, image_model, remove_background
+from .ai import AIServiceError, ai_configured, image_model, remove_background, suggest_cutout_subjects, vision_model
 from .api_logs import clear_api_calls, list_api_calls
 from .palette import BEAD_PALETTE
 from .pattern import generate_pattern
@@ -51,6 +51,7 @@ class APISettingsPayload(BaseModel):
     api_url: str = Field(min_length=1, max_length=2048)
     api_key: str | None = Field(default=None, max_length=4096)
     model: str = Field(min_length=1, max_length=200)
+    vision_model: str = Field(default="gpt-5.5", min_length=1, max_length=200)
     quality: str = Field(default="medium", min_length=1, max_length=40)
     clear_api_key: bool = False
 
@@ -103,12 +104,15 @@ def config() -> dict:
     try:
         enabled = ai_configured()
         model = image_model() if enabled else None
+        vision = vision_model() if enabled else None
     except SettingsError:
         enabled = False
         model = None
+        vision = None
     return {
         "ai_enabled": enabled,
         "ai_model": model,
+        "vision_model": vision,
         "settings_enabled": settings_password_configured(),
     }
 
@@ -130,15 +134,19 @@ def _settings_from_payload(payload: APISettingsPayload) -> AISettings:
     else:
         api_key = current.api_key
     model = payload.model.strip()
+    vision = payload.vision_model.strip()
     quality = payload.quality.strip()
     if not model:
         raise SettingsError("图像模型不能为空")
+    if not vision:
+        raise SettingsError("识图模型不能为空")
     if not quality:
         raise SettingsError("图像质量不能为空")
     return AISettings(
         api_url=normalize_api_url(payload.api_url),
         api_key=api_key,
         model=model,
+        vision_model=vision,
         quality=quality,
     )
 
@@ -213,6 +221,27 @@ async def test_api_settings(
         return await test_api_connection(settings)
     except SettingsError as error:
         raise HTTPException(400, str(error)) from None
+
+
+@app.post("/api/ai/subjects")
+async def ai_subjects(
+    image: UploadFile = File(...),
+    prompt: str = Form("", max_length=500),
+) -> dict:
+    raw = await image.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "图片不能超过 12 MB")
+    try:
+        source = Image.open(BytesIO(raw))
+        source.verify()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(400, "无法识别这张图片") from None
+    try:
+        subjects = await suggest_cutout_subjects(raw, image.content_type or "image/png", prompt)
+    except AIServiceError as error:
+        status = 503 if "尚未配置" in str(error) else 502
+        raise HTTPException(status, str(error)) from None
+    return {"model": vision_model(), "subjects": subjects}
 
 
 @app.post("/api/ai/cutout")
