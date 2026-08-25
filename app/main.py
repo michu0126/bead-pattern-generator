@@ -29,12 +29,12 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 VERSION_CHANGES = [
-    "新增容器本地分割抠图：默认使用内置 isnet-general-use 模型，不耗 Token",
-    "模型随镜像打包，群晖运行时无需 API Key 或外网",
-    "云端抠图会校验透明通道；不透明返回将明确报错而非显示原图",
-    "调用日志新增透明像素比例与 Alpha 范围",
+    "严格色卡优先：原图每个像素先按 HEX 匹配 MARD，非色卡色再选最近色",
+    "板格仅对离散色号按真实覆盖面积等比缩小，禁止 RGB 平均混色",
+    "移除边缘平滑对细小真实色块的压低，保留更多原图色彩细节",
+    "无插值像素分析上限提升至 4096 像素",
 ]
 
 BOARD_SPECS = {
