@@ -28,13 +28,13 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 VERSION_CHANGES = [
-    "新增受管理密码保护的真实 Image API 调用日志页面",
-    "显示模型、接口、HTTP 状态、耗时、请求 ID 与成功或失败原因",
-    "日志不会保存 API Key、Authorization、原图、返回图片或完整提示词",
-    "修复 API 设置首次保存后无法继续修改并再次保存的问题",
-    "测试连接可读取接口真实模型列表，并优先建议 GPT Image 编辑模型",
+    "以完整 24-bit HEX 精确匹配 MARD 2.6 mm 标准 221 色卡",
+    "采用源像素精确面积投票，避免缩放插值造成边缘混色",
+    "不匹配色使用 CIEDE2000 在全部 MARD 色卡中选取最近色",
+    "首页升级为精简的拼豆工作台，并加入原创拼豆风背景",
+    "保留智能抠图、API 调用日志与单格手动色号修正",
 ]
 
 BOARD_SPECS = {
