@@ -108,7 +108,7 @@ API Key 以权限 `0600` 的配置文件保存在 `/data/settings.json`，请给
 
 ## 图像和颜色是怎样识别的
 
-普通图纸生成并不是用 AI 理解图片内容。程序按所选板型计算每个豆格在原图中的精确覆盖区域，不再先用插值算法缩小图片。区域内的每个原图像素会先独立转换到 CIE Lab 并匹配 MARD 221 色参考表，再按照像素与豆格的实际重叠面积、透明度、局部颜色一致性和中心位置进行投票。这样黑线、白底与主体颜色不会先混合成一个原图中不存在的 RGB；抗锯齿产生的孤立过渡色会降权，细黑轮廓则保留独立优先规则。透明像素和与四周连通的白底不参与投票，接近五五开的真实边界由格子中心附近的源像素确定。
+普通图纸生成并不是用 AI 理解图片内容。程序按所选板型计算每个豆格在原图中的精确覆盖区域，不再先用插值算法缩小图片。区域内每个原图像素保留完整 24-bit HEX：如果与 MARD 221 色卡的 HEX 完全相同，直接采用对应 MARD 色号；只有色卡中不存在该 HEX 时，才把双方 HEX 解析成 sRGB、转换到 CIE Lab，并用 CIEDE2000 选择色差最小的 MARD 色。随后按照源像素与豆格的实际重叠面积、透明度、局部颜色一致性和中心位置进行色号投票。这样黑线、白底与主体颜色不会先混合成原图中不存在的 RGB；抗锯齿孤立色会降权，细黑轮廓保留独立优先规则。
 
 这种方式速度快、结果可重复，但准确度会受到原图光线、阴影、滤镜、透明度、缩放以及参考 RGB 与实体豆批次色差的影响。文字抠图才使用 CLIPSeg 模型理解用户描述，它只负责分离前景，不负责判断 MARD 色号。
 
@@ -137,7 +137,7 @@ docker run --rm -p 18026:18026 bead-pattern-generator
 ## 数据与模型来源
 
 - 板型参考：[Artkal 2.6 mm 50×50 / 52×52 pegboard](https://www.artkalfusebeads.com/products/artkal-clear-large-square-pegboard-for-mini-2-6mm-beads-bcp01)
-- MARD 经典 221 色参考数据：[pixel-to-beads / mard-color.json](https://github.com/a31521424/pixel-to-beads/blob/main/src/mard-color.json)
+- MARD 标准 221 色 HEX：以 [Yaya 2.6 mm MARD 映射](https://github.com/carolineyang095-code/ycs-beads-converter/blob/main/colorSystemMapping.json) 为数据基准，并与 [Bitbead MARD 221](https://www.bitbead.app/zh-TW/colors/mard/) 和 [拼豆工具站 MARD 221](https://www.pindou.online/colors) 交叉核对
 - 文字分割模型：[Xenova/clipseg-rd64-refined](https://huggingface.co/Xenova/clipseg-rd64-refined)
 
 ## 自动发布
