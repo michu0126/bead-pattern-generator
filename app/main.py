@@ -29,8 +29,9 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 VERSION_CHANGES = [
+    "修复页面版本请求异常时错误显示 v0.6.0 的问题",
     "抠图处理方式精简为本地抠图与 AI 抠图两个选项",
     "移除浏览器文字识图及视觉模型识别主体后再抠图的界面流程",
     "Image2 图纸调用对网络、429 与服务端错误自动重试最多 3 次",
@@ -415,3 +416,4 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse("app/static/index.html")
+
