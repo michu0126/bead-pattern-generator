@@ -43,7 +43,7 @@ jobs:
             name=${{ vars.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }},enable=${{ vars.DOCKERHUB_USERNAME != '' }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=v0.6.0,enable={{is_default_branch}}
+            type=raw,value=v0.7.0,enable={{is_default_branch}}
             type=ref,event=branch
             type=ref,event=tag
             type=semver,pattern={{version}}
