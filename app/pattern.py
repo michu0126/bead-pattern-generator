@@ -11,8 +11,7 @@ from .palette import BEAD_PALETTE
 
 
 MIN_CELL_COVERAGE = 0.08
-DARK_CELL_COVERAGE = 0.07
-MAX_ANALYSIS_SIDE = 2048
+MAX_ANALYSIS_SIDE = 4096
 
 
 def _srgb_to_lab(rgb: np.ndarray) -> np.ndarray:
@@ -164,7 +163,8 @@ def _prepare_source(image: Image.Image) -> np.ndarray:
             max(1, round(source.width * ratio)),
             max(1, round(source.height * ratio)),
         )
-        # NEAREST may discard detail on unusually large uploads, but never invents mixed RGB values.
+        # Never interpolate RGB while preparing the source: every retained sample
+        # must remain an original pixel colour before it is matched to MARD.
         source = source.resize(size, Image.Resampling.NEAREST)
     return np.array(source, dtype=np.uint8, copy=True)
 
@@ -354,53 +354,38 @@ def _axis_overlaps(length: int, start: float, end: float) -> tuple[np.ndarray, n
     return indices[valid], overlap[valid]
 
 
-def _palette_luminance(palette: list[dict]) -> np.ndarray:
-    rgb = np.array([item["rgb"] for item in palette], dtype=np.float64)
-    return 0.2126 * rgb[:, 0] + 0.7152 * rgb[:, 1] + 0.0722 * rgb[:, 2]
-
-
 def _choose_cell_palette(
     labels: np.ndarray,
     alpha: np.ndarray,
-    agreement: np.ndarray,
     area: np.ndarray,
     center_weight: np.ndarray,
     cell_area: float,
     palette_size: int,
-    dark_palette: np.ndarray,
 ) -> int:
+    """Categorically downsample already-quantised MARD labels, never RGB values."""
     raw_weight = area * (alpha.astype(np.float64) / 255.0)
     coverage = raw_weight.sum() / max(cell_area, 1e-12)
     active = (labels >= 0) & (raw_weight > 1e-12)
     if coverage < MIN_CELL_COVERAGE or not np.any(active):
         return -1
 
-    active_labels = labels[active]
-    dark = dark_palette[active_labels]
-    dark_coverage = raw_weight[active][dark].sum() / max(cell_area, 1e-12)
-    if dark_coverage >= DARK_CELL_COVERAGE:
-        votes = np.bincount(
-            active_labels[dark],
-            weights=(raw_weight * center_weight)[active][dark],
-            minlength=palette_size,
-        )
-    else:
-        reliability = 0.20 + 0.80 * np.square(agreement.astype(np.float64))
-        votes = np.bincount(
-            active_labels,
-            weights=(raw_weight * center_weight * reliability)[active],
-            minlength=palette_size,
-        )
-
+    # Every original pixel has already been matched by its HEX/RGB value to one
+    # MARD code.  The board only votes among those discrete codes by true covered
+    # area; no average RGB is ever created at an edge.
+    votes = np.bincount(
+        labels[active],
+        weights=raw_weight[active],
+        minlength=palette_size,
+    )
     highest = float(votes.max())
     if highest <= 0:
         return -1
-    candidates = np.flatnonzero(votes >= highest * 0.96)
+    candidates = np.flatnonzero(np.isclose(votes, highest, rtol=0.0, atol=1e-12))
     if len(candidates) == 1:
         return int(candidates[0])
 
-    # When two real colours divide a cell almost equally, use the closest active
-    # source pixel to the cell centre. It resolves the boundary without blending.
+    # A mathematically exact tie is resolved by the label whose original pixel
+    # lies closest to the bead centre, still without blending any colours.
     distances = np.where(active, -center_weight, np.inf)
     for flat_index in np.argsort(distances, axis=None, kind="stable"):
         row, column = np.unravel_index(flat_index, labels.shape)
@@ -411,7 +396,7 @@ def _choose_cell_palette(
 
 
 def _sample_cells(image: Image.Image, width: int, height: int, palette: list[dict]) -> np.ndarray:
-    """Choose one palette colour per bead by exact source-pixel area voting."""
+    """Quantise source pixels first, then downsample MARD labels by exact area."""
     pixels = _prepare_source(image)
     pixels[_discardable_white_mask(pixels), 3] = 0
 
@@ -449,12 +434,10 @@ def _sample_cells(image: Image.Image, width: int, height: int, palette: list[dic
             indices[row, column] = _choose_cell_palette(
                 labels[selection],
                 pixels[..., 3][selection],
-                agreement[selection],
                 area,
                 center_weight,
                 cell_area,
                 len(palette),
-                dark_palette,
             )
     return indices
 
