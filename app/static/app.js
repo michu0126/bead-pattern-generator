@@ -571,7 +571,7 @@ $('#discard-cutout').addEventListener('click', () => {
   workingBlob = sourceBlob;
   proposedCutout = null;
   cutoutResult.classList.add('hidden');
-  cutoutMessage.textContent = '已弃用抠图结果，继续使用原图。';
+  cutoutMessage.textContent = '已弃用处理结果，继续使用原图。';
   message.textContent = '正在使用原图。';
 });
 
