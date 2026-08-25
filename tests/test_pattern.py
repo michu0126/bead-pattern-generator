@@ -47,7 +47,7 @@ def test_neutral_pixels_only_match_neutral_palette_entries():
     pixels = np.array([[123, 123, 123], [72, 72, 72], [205, 205, 205]], dtype=np.uint8)
     indices = _map_to_palette(pixels, BEAD_PALETTE)
     codes = [BEAD_PALETTE[int(index)]["code"] for index in indices]
-    assert all(code.startswith("H") for code in codes)
+    assert all(code.startswith("H") for code in codes), codes
 
 
 def test_antialiased_black_and_white_do_not_create_tinted_greys():
@@ -79,7 +79,7 @@ def test_solid_pink_is_not_split_into_neutral_or_brown_families():
     _, summary, _ = generate_pattern(image, 16, 16)
     chromatic_codes = {item["code"] for item in summary if not item["code"].startswith("H")}
     assert chromatic_codes
-    assert all(code.startswith("E") for code in chromatic_codes)
+    assert all(code.startswith("E") for code in chromatic_codes), chromatic_codes
     assert len(chromatic_codes) <= 2
 
 
