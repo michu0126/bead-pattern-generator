@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css?build=ui-refresh-1">
-  <link rel="stylesheet" href="/static/logs.css?build=ui-refresh-1">
+  <link rel="stylesheet" href="/static/style.css?build=board-cards-1">
+  <link rel="stylesheet" href="/static/logs.css?build=board-cards-1">
 </head>
 <body>
   <div class="bead-backdrop" aria-hidden="true"></div>
@@ -97,7 +97,11 @@
       </section>
 
       <div class="generator-bar">
-        <div class="board-field"><label for="board">02　选择板子</label><select id="board" aria-label="板子规格"></select></div>
+        <section class="board-field" aria-labelledby="board-label">
+          <span id="board-label">02　选择板子</span>
+          <input id="board" type="hidden" value="52x52">
+          <div id="board-options" class="board-options" role="radiogroup" aria-label="板子规格"></div>
+        </section>
         <div class="palette-note"><strong>MARD 2.6 mm</strong><span>221 色 · 自动匹配</span></div>
         <button id="generate" type="button">生成图纸 <span>→</span></button>
       </div>
@@ -115,6 +119,6 @@
     </section>
   </main>
   <script src="/static/logs.js?build=ui-refresh-1"></script>
-  <script type="module" src="/static/app.js?build=ui-refresh-1"></script>
+  <script type="module" src="/static/app.js?build=board-cards-1"></script>
 </body>
 </html>
