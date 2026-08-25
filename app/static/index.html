@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css?build=board-cards-1">
-  <link rel="stylesheet" href="/static/logs.css?build=board-cards-1">
+  <link rel="stylesheet" href="/static/style.css?build=local-cutout-1">
+  <link rel="stylesheet" href="/static/logs.css?build=local-cutout-1">
 </head>
 <body>
   <div class="bead-backdrop" aria-hidden="true"></div>
@@ -79,7 +79,7 @@
         <div class="source-preview checker"><img id="source-preview" alt="原图预览"></div>
         <div class="cutout-controls">
           <label for="recognition-mode">处理方式</label>
-          <select id="recognition-mode"><option value="local">本地识图</option><option value="openai" disabled>云端识图（未配置）</option></select>
+          <select id="recognition-mode"><option value="container">容器本地抠图（推荐 · 不耗 Token）</option><option value="local">浏览器文字识图</option><option value="openai" disabled>云端识图（未配置）</option></select>
           <small id="ai-status"></small>
           <label for="cutout-prompt">智能抠图 <small>（可选）</small></label>
           <div class="inline-form"><input id="cutout-prompt" type="text" maxlength="100" placeholder="例如：人物、白色的猫"><button id="cutout" class="secondary" type="button">识别主体</button></div>
@@ -119,6 +119,6 @@
     </section>
   </main>
   <script src="/static/logs.js?build=ui-refresh-1"></script>
-  <script type="module" src="/static/app.js?build=board-cards-1"></script>
+  <script type="module" src="/static/app.js?build=local-cutout-1"></script>
 </body>
 </html>
