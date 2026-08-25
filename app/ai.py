@@ -458,21 +458,28 @@ async def generate_direct_bead_pattern(
             "error": error,
         })
 
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(180.0, connect=20.0),
-            follow_redirects=False,
-        ) as client:
-            dispatched = True
-            response = await client.post(
-                settings.edit_url,
-                headers={"Authorization": f"Bearer {settings.api_key}"},
-                data=data,
-                files=files,
-            )
-    except httpx.RequestError as error:
-        log_call(False, error=f"网络错误：{type(error).__name__}")
-        raise AIServiceError("无法连接图像 API，请检查接口地址和群晖网络") from error
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(180.0, connect=20.0),
+                follow_redirects=False,
+            ) as client:
+                dispatched = True
+                response = await client.post(
+                    settings.edit_url,
+                    headers={"Authorization": f"Bearer {settings.api_key}"},
+                    data=data,
+                    files=files,
+                )
+        except httpx.RequestError as error:
+            if attempt < 2:
+                await asyncio.sleep(0.8 * (attempt + 1))
+                continue
+            log_call(False, error=f"网络错误（已重试 3 次）：{type(error).__name__}")
+            raise AIServiceError("无法连接图像 API，请检查接口地址和群晖网络") from error
+        if response.status_code not in {429, 500, 502, 503, 504} or attempt == 2:
+            break
+        await asyncio.sleep(0.8 * (attempt + 1))
 
     if response.status_code >= 400:
         try:
