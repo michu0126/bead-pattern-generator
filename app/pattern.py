@@ -430,6 +430,7 @@ def generate_pattern(image: Image.Image, width: int, height: int) -> tuple[bytes
         {
             "code": item["code"],
             "name": item["name"],
+            "hex": item["hex"],
             "rgb": list(item["rgb"]),
             "count": counts.get(index, 0),
         }
