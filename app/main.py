@@ -28,22 +28,18 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "0.8.0"
+APP_VERSION = "0.9.0"
 VERSION_CHANGES = [
-    "新增两阶段云端抠图：识图模型先提供主体选项，图像模型再执行抠图",
-    "API 设置可分别配置识图模型（默认 gpt-5.5）与图像编辑模型（默认 gpt-image-2）",
-    "旧版误将 gpt-5.5 设为图像模型的配置会自动迁移",
-    "50 × 50、52 × 52 小板会自动聚焦较小主体，提升图案辨识度",
-    "弃用外部及脱离主体的白色区域，保留封闭图形内部白色",
+    "板型适配常用的 52、72、78、104 钉正方形单板",
+    "板型选择改为规格卡片，可直观看到尺寸和当前选项",
+    "默认板型改为 52 × 52 钉单板",
 ]
 
 BOARD_SPECS = {
-    "50x50": {"id": "50x50", "label": "50 × 50（2.6 mm 标准单板）", "width": 50, "height": 50},
-    "52x52": {"id": "52x52", "label": "52 × 52（2.6 mm 标准单板）", "width": 52, "height": 52},
-    "100x50": {"id": "100x50", "label": "100 × 50（两块 50 板横拼）", "width": 100, "height": 50},
-    "104x52": {"id": "104x52", "label": "104 × 52（两块 52 板横拼）", "width": 104, "height": 52},
-    "100x100": {"id": "100x100", "label": "100 × 100（四块 50 板）", "width": 100, "height": 100},
-    "104x104": {"id": "104x104", "label": "104 × 104（四块 52 板）", "width": 104, "height": 104},
+    "52x52": {"id": "52x52", "label": "52 钉单板", "width": 52, "height": 52},
+    "72x72": {"id": "72x72", "label": "72 钉单板", "width": 72, "height": 72},
+    "78x78": {"id": "78x78", "label": "78 钉单板", "width": 78, "height": 78},
+    "104x104": {"id": "104x104", "label": "104 钉单板", "width": 104, "height": 104},
 }
 
 
@@ -277,7 +273,7 @@ async def ai_cutout(
 @app.post("/api/generate")
 async def generate(
     image: UploadFile = File(...),
-    board: str = Form("50x50"),
+    board: str = Form("52x52"),
 ) -> dict:
     spec = BOARD_SPECS.get(board)
     if spec is None:
