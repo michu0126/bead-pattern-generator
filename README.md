@@ -2,7 +2,7 @@
 
 把图片转换成 MARD 2.6 mm 拼豆图纸。应用会自动从 221 色参考色卡中匹配颜色，在每个格子内标出色号，并生成用量清单。支持用文字描述主体，在浏览器中先抠图、预览，再选择采用或弃用。
 
-当前版本：**v0.6.0**。页面顶部会显示运行中的版本号和更新内容，并提供“API 设置”和“清除缓存并刷新”按钮。v0.6.0 新增真实 Image API 调用日志、接口模型列表与推荐，并修复 API 设置首次保存后无法继续修改并再次保存的问题。
+当前版本：**v0.7.0**。本版升级为严格的 MARD HEX 色卡匹配与源像素面积投票，降低边缘混色；同时将首页整理为更简洁的拼豆工作台，保留 API 设置、调用日志、智能抠图与单格手动修正。
 
 生成前会检测与图片四周边缘连通的近白色区域，并把这些区域当成背景留空，因此主图外围白底不会被大量标为 H2；主体内部独立、不与边缘相连的白色仍会保留。
 
@@ -108,7 +108,7 @@ API Key 以权限 `0600` 的配置文件保存在 `/data/settings.json`，请给
 
 ## 图像和颜色是怎样识别的
 
-普通图纸生成并不是用 AI 理解图片内容。程序先按所选板型裁切图片，以 8 倍目标分辨率分析透明度和外围白底；每颗豆使用对应图块的主色中位数，避免把黑线、白底和主体颜色简单平均成伪灰色。细黑轮廓会被优先保留，抗锯齿与压缩产生的少量过渡色会自动合并。随后将代表色转换到 CIE Lab，与 MARD 221 色参考表比较；中性色只在中性色卡中选择，彩色像素则增加色相约束，最后统计并绘制色号。
+普通图纸生成并不是用 AI 理解图片内容。程序按所选板型计算每个豆格在原图中的精确覆盖区域，不再先用插值算法缩小图片。区域内每个原图像素保留完整 24-bit HEX：如果与 MARD 221 色卡的 HEX 完全相同，直接采用对应 MARD 色号；只有色卡中不存在该 HEX 时，才把双方 HEX 解析成 sRGB、转换到 CIE Lab，并用 CIEDE2000 选择色差最小的 MARD 色。随后按照源像素与豆格的实际重叠面积、透明度、局部颜色一致性和中心位置进行色号投票。这样黑线、白底与主体颜色不会先混合成原图中不存在的 RGB；抗锯齿孤立色会降权，细黑轮廓保留独立优先规则。
 
 这种方式速度快、结果可重复，但准确度会受到原图光线、阴影、滤镜、透明度、缩放以及参考 RGB 与实体豆批次色差的影响。文字抠图才使用 CLIPSeg 模型理解用户描述，它只负责分离前景，不负责判断 MARD 色号。
 
@@ -137,7 +137,7 @@ docker run --rm -p 18026:18026 bead-pattern-generator
 ## 数据与模型来源
 
 - 板型参考：[Artkal 2.6 mm 50×50 / 52×52 pegboard](https://www.artkalfusebeads.com/products/artkal-clear-large-square-pegboard-for-mini-2-6mm-beads-bcp01)
-- MARD 经典 221 色参考数据：[pixel-to-beads / mard-color.json](https://github.com/a31521424/pixel-to-beads/blob/main/src/mard-color.json)
+- MARD 标准 221 色 HEX：以 [Yaya 2.6 mm MARD 映射](https://github.com/carolineyang095-code/ycs-beads-converter/blob/main/colorSystemMapping.json) 为数据基准，并与 [Bitbead MARD 221](https://www.bitbead.app/zh-TW/colors/mard/) 和 [拼豆工具站 MARD 221](https://www.pindou.online/colors) 交叉核对
 - 文字分割模型：[Xenova/clipseg-rd64-refined](https://huggingface.co/Xenova/clipseg-rd64-refined)
 
 ## 自动发布
