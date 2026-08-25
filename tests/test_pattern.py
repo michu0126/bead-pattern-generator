@@ -180,3 +180,15 @@ def test_small_board_focuses_subject_instead_of_sampling_full_white_canvas():
     occupied = sum(code is not None for row in grid for code in row)
     assert occupied > 900
     assert {item["code"] for item in summary} == {"H7"}
+
+
+def test_palette_first_downsample_votes_discrete_mard_codes_without_rgb_blending():
+    left = next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "F5")
+    right = next(item["rgb"] for item in BEAD_PALETTE if item["code"] == "C8")
+    image = Image.new("RGB", (100, 20), right)
+    # The left colour covers 51% of the cell. A RGB resize would manufacture a
+    # boundary colour; categorical palette-first voting must retain F5.
+    ImageDraw.Draw(image).rectangle((0, 0, 50, 19), fill=left)
+
+    _, _, grid = generate_pattern(image, 1, 1)
+    assert grid == [["F5"]]
