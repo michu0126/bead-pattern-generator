@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from .ai import AIServiceError, ai_configured, create_pattern_reference, image_model, remove_background, suggest_cutout_subjects, vision_model
+from .ai import AIServiceError, ai_configured, create_pattern_reference, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
 from .api_logs import clear_api_calls, list_api_calls
 from .local_cutout import LocalCutoutError, model_name as local_cutout_model, remove_background_locally
 from .palette import BEAD_PALETTE
@@ -315,6 +315,40 @@ async def ai_pattern_reference(image: UploadFile = File(...)) -> dict:
         raise HTTPException(status, str(error)) from None
     return {
         "model": image_model(),
+        "image": "data:image/png;base64," + base64.b64encode(result).decode("ascii"),
+    }
+
+
+@app.post("/api/ai/generate-pattern")
+async def ai_generate_pattern(
+    image: UploadFile = File(...),
+    board: str = Form("52x52"),
+) -> dict:
+    spec = BOARD_SPECS.get(board)
+    if spec is None:
+        raise HTTPException(400, "请选择有效的板子规格")
+    raw = await image.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "图片不能超过 12 MB")
+    try:
+        source = Image.open(BytesIO(raw))
+        source.verify()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(400, "无法识别这张图片") from None
+    try:
+        result = await generate_direct_bead_pattern(
+            raw,
+            image.filename or "subject.png",
+            image.content_type or "image/png",
+            spec["width"],
+            spec["height"],
+        )
+    except AIServiceError as error:
+        status = 503 if "尚未配置" in str(error) else 502
+        raise HTTPException(status, str(error)) from None
+    return {
+        "engine": image_model(),
+        "board": spec,
         "image": "data:image/png;base64," + base64.b64encode(result).decode("ascii"),
     }
 
