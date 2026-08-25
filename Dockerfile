@@ -11,18 +11,21 @@ LABEL org.opencontainers.image.title="Bead Pattern Generator" \
       org.opencontainers.image.licenses="MIT"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    U2NET_HOME=/opt/rembg-models \
+    LOCAL_CUTOUT_MODEL=isnet-general-use
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && python -c "from rembg import new_session; new_session('isnet-general-use')"
 
 COPY app ./app
 
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /data \
-    && chown -R appuser:appuser /app /data
+    && chown -R appuser:appuser /app /data /opt/rembg-models
 USER appuser
 
 EXPOSE 18026
