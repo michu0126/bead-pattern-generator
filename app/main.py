@@ -42,10 +42,6 @@ BOARD_SPECS = {
     "72x72": {"id": "72x72", "label": "72 钉单板", "width": 72, "height": 72},
     "78x78": {"id": "78x78", "label": "78 钉单板", "width": 78, "height": 78},
     "104x104": {"id": "104x104", "label": "104 钉单板", "width": 104, "height": 104},
-    "104x52": {"id": "104x52", "label": "52 钉板横拼", "width": 104, "height": 52},
-    "144x72": {"id": "144x72", "label": "72 钉板横拼", "width": 144, "height": 72},
-    "156x78": {"id": "156x78", "label": "78 钉板横拼", "width": 156, "height": 78},
-    "208x104": {"id": "208x104", "label": "104 钉板横拼", "width": 208, "height": 104},
 }
 
 
