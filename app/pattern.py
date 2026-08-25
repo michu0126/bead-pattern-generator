@@ -403,9 +403,6 @@ def _sample_cells(image: Image.Image, width: int, height: int, palette: list[dic
     active = pixels[..., 3] >= 8
     labels = _pixel_palette_indices(pixels[..., :3], palette)
     labels[~active] = -1
-    agreement = _local_label_agreement(labels, active)
-    dark_palette = _palette_luminance(palette) <= 55
-
     left, top, crop_width, crop_height = _focused_geometry(pixels, width, height)
     indices = np.full((height, width), -1, dtype=np.int16)
 
