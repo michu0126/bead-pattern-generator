@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from .ai import AIServiceError, ai_configured, create_pattern_reference, image_model, remove_background, suggest_cutout_subjects, vision_model
+from .ai import AIServiceError, ai_configured, create_pattern_reference, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
 from .api_logs import clear_api_calls, list_api_calls
 from .local_cutout import LocalCutoutError, model_name as local_cutout_model, remove_background_locally
 from .palette import BEAD_PALETTE
@@ -29,12 +29,12 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 VERSION_CHANGES = [
-    "新增 Image2 色块优化：生成边缘清晰的参考图，确认后再生成 MARD 图纸",
-    "Image2 结果可采用或弃用；透明背景会沿用已确认的抠图遮罩",
-    "最终每格 MARD 色号仍由本地严格色卡算法生成，支持手动编辑",
-    "调用日志新增 image_pattern_reference，方便核验真实 API 调用",
+    "生成图纸改为直接调用 Image2，不再使用本地色卡缩格算法",
+    "本地分割模型继续用于准确抠图；采用结果后按所选板子规格交由 Image2 出图",
+    "Image2 请求携带完整 MARD 色号与 HEX 色表，并要求输出格线和色号",
+    "日志新增 image_direct_pattern_generation，便于核验真实调用",
 ]
 
 BOARD_SPECS = {
@@ -315,6 +315,40 @@ async def ai_pattern_reference(image: UploadFile = File(...)) -> dict:
         raise HTTPException(status, str(error)) from None
     return {
         "model": image_model(),
+        "image": "data:image/png;base64," + base64.b64encode(result).decode("ascii"),
+    }
+
+
+@app.post("/api/ai/generate-pattern")
+async def ai_generate_pattern(
+    image: UploadFile = File(...),
+    board: str = Form("52x52"),
+) -> dict:
+    spec = BOARD_SPECS.get(board)
+    if spec is None:
+        raise HTTPException(400, "请选择有效的板子规格")
+    raw = await image.read()
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "图片不能超过 12 MB")
+    try:
+        source = Image.open(BytesIO(raw))
+        source.verify()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(400, "无法识别这张图片") from None
+    try:
+        result = await generate_direct_bead_pattern(
+            raw,
+            image.filename or "subject.png",
+            image.content_type or "image/png",
+            spec["width"],
+            spec["height"],
+        )
+    except AIServiceError as error:
+        status = 503 if "尚未配置" in str(error) else 502
+        raise HTTPException(status, str(error)) from None
+    return {
+        "engine": image_model(),
+        "board": spec,
         "image": "data:image/png;base64," + base64.b64encode(result).decode("ascii"),
     }
 

@@ -5,7 +5,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from app.ai import AIServiceError, ai_configured, create_pattern_reference, image_model, remove_background, suggest_cutout_subjects, vision_model
+from app.ai import AIServiceError, ai_configured, create_pattern_reference, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
 from app.api_logs import list_api_calls
 
 
@@ -194,3 +194,40 @@ def test_image2_pattern_reference_preserves_source_alpha_and_logs(monkeypatch):
     log = list_api_calls()[0]
     assert log["operation"] == "image_pattern_reference"
     assert log["success"] is True
+
+
+def test_image2_direct_pattern_request_includes_board_and_mard_palette(monkeypatch):
+    chart_buffer = BytesIO()
+    Image.new("RGB", (64, 64), (250, 250, 250)).save(chart_buffer, format="PNG")
+
+    class FakeResponse:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return {"data": [{"b64_json": base64.b64encode(chart_buffer.getvalue()).decode("ascii")}]}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, *, headers, data, files):
+            assert data["model"] == "gpt-image-2"
+            assert "exactly 52 columns and 52 rows" in data["prompt"]
+            assert "H7=#000000" in data["prompt"]
+            assert data["background"] == "opaque"
+            return FakeResponse()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "private-test-key")
+    monkeypatch.setattr("app.ai.httpx.AsyncClient", FakeClient)
+    result = asyncio.run(generate_direct_bead_pattern(b"source", "subject.png", "image/png", 52, 52))
+    assert result == chart_buffer.getvalue()
+    log = list_api_calls()[0]
+    assert log["operation"] == "image_direct_pattern_generation"
+    assert log["input"]["board"] == "52x52"

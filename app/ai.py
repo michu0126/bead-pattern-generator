@@ -11,6 +11,7 @@ import httpx
 from PIL import Image, ImageOps
 
 from .api_logs import record_api_call
+from .palette import BEAD_PALETTE
 from .settings import SettingsError, load_settings
 
 
@@ -378,5 +379,104 @@ async def create_pattern_reference(
     except (KeyError, IndexError, TypeError, ValueError, OSError) as error:
         log_call(False, error="图像 API 没有返回兼容的 b64_json 图片")
         raise AIServiceError("图像 API 没有返回兼容的 b64_json 图片") from error
+    log_call(True, output_bytes=len(result))
+    return result
+
+
+async def generate_direct_bead_pattern(
+    image: bytes,
+    filename: str,
+    content_type: str,
+    width: int,
+    height: int,
+) -> bytes:
+    """Ask Image2 for a final bead chart after the user has confirmed the cutout."""
+    try:
+        settings = load_settings()
+    except SettingsError as error:
+        raise AIServiceError(str(error)) from error
+    if not settings.enabled:
+        raise AIServiceError("服务器尚未配置可用的 OpenAI 兼容 API")
+
+    palette_reference = "; ".join(f"{item['code']}={item['hex']}" for item in BEAD_PALETTE)
+    prompt = (
+        "Create a print-ready MARD 2.6 mm fused-bead pattern from the supplied isolated subject. "
+        f"The chart must contain exactly {width} columns and {height} rows of equal square cells. "
+        "Preserve the subject silhouette, pose, proportions and all recognizable details, but express it as clear discrete bead cells. "
+        "Every occupied cell must use only one of the following MARD code and HEX pairs, filled with that exact HEX and printed with its exact code: "
+        f"{palette_reference}. "
+        "Leave cells outside the subject blank white; do not use H2 for exterior background. "
+        "Draw only the rectangular bead grid and code labels. Do not add a title, legend, decorative border, watermark, prose, extra objects, or a second image. "
+        "Return a high-resolution PNG of the complete chart."
+    )
+    data = {
+        "model": settings.model,
+        "prompt": prompt,
+        "background": "opaque",
+        "output_format": "png",
+        "quality": settings.quality,
+        "size": "auto",
+        "input_fidelity": "high",
+    }
+    files = {"image": (filename or "subject.png", image, content_type or "image/png")}
+    call_id, dispatched, response = str(uuid4()), False, None
+    started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    started_clock = time.monotonic()
+
+    def log_call(success: bool, *, error: str | None = None, output_bytes: int | None = None) -> None:
+        headers = getattr(response, "headers", {}) if response is not None else {}
+        record_api_call({
+            "id": call_id,
+            "started_at": started_at,
+            "operation": "image_direct_pattern_generation",
+            "provider": "OpenAI compatible",
+            "endpoint": settings.edit_url,
+            "model": settings.model,
+            "dispatched": dispatched,
+            "success": success,
+            "duration_ms": round((time.monotonic() - started_clock) * 1000),
+            "input": {"bytes": len(image), "content_type": content_type or "image/png", "board": f"{width}x{height}"},
+            "request": {"purpose": "direct_bead_chart", "quality": data["quality"], "size": data["size"], "prompt_length": len(prompt)},
+            "response": {
+                "status_code": getattr(response, "status_code", None),
+                "content_type": headers.get("content-type"),
+                "request_id": headers.get("x-request-id") or headers.get("openai-request-id") or headers.get("request-id"),
+                "output_bytes": output_bytes,
+            },
+            "error": error,
+        })
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(180.0, connect=20.0),
+            follow_redirects=False,
+        ) as client:
+            dispatched = True
+            response = await client.post(
+                settings.edit_url,
+                headers={"Authorization": f"Bearer {settings.api_key}"},
+                data=data,
+                files=files,
+            )
+    except httpx.RequestError as error:
+        log_call(False, error=f"网络错误：{type(error).__name__}")
+        raise AIServiceError("无法连接图像 API，请检查接口地址和群晖网络") from error
+
+    if response.status_code >= 400:
+        try:
+            message = response.json().get("error", {}).get("message")
+        except ValueError:
+            message = None
+        detail = str(message)[:300] if message else f"图像 API 请求失败（{response.status_code}）"
+        log_call(False, error=detail)
+        raise AIServiceError(detail)
+
+    try:
+        encoded = response.json()["data"][0]["b64_json"]
+        result = base64.b64decode(encoded, validate=True)
+        Image.open(BytesIO(result)).verify()
+    except (KeyError, IndexError, TypeError, ValueError, OSError) as error:
+        log_call(False, error="图像 API 没有返回兼容的 b64_json PNG 图纸")
+        raise AIServiceError("图像 API 没有返回兼容的 b64_json PNG 图纸") from error
     log_call(True, output_bytes=len(result))
     return result
