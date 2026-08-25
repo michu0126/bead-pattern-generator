@@ -59,3 +59,16 @@ def test_settings_api_saves_but_never_returns_key(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.json()["has_api_key"] is False
     assert load_settings().api_key == ""
+
+
+def test_board_api_exposes_common_pegboard_sizes():
+    response = client.get("/api/boards")
+    assert response.status_code == 200
+    boards = response.json()
+    assert [(item["width"], item["height"]) for item in boards] == [
+        (52, 52),
+        (72, 72),
+        (78, 78),
+        (104, 104),
+    ]
+    assert [item["id"] for item in boards] == ["52x52", "72x72", "78x78", "104x104"]
