@@ -4,38 +4,35 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css?v=0.6.0">
-  <link rel="stylesheet" href="/static/logs.css?v=0.6.0">
+  <link rel="stylesheet" href="/static/style.css?build=ui-refresh-1">
+  <link rel="stylesheet" href="/static/logs.css?build=ui-refresh-1">
 </head>
 <body>
+  <div class="bead-backdrop" aria-hidden="true"></div>
   <main>
-    <header>
+    <header class="hero">
       <div class="topline">
-        <span class="eyebrow">BEAD STUDIO · MARD 2.6 MM</span>
+        <span class="brand"><i></i> 拼豆工作台</span>
         <div class="version-actions">
-          <span class="version-badge">当前版本 v<span id="app-version">0.6.0</span></span>
+          <span class="version-badge">v<span id="app-version">0.6.0</span></span>
           <button id="open-api-settings" class="cache-button" type="button">API 设置</button>
-          <button id="clear-cache" class="cache-button" type="button">清除缓存并刷新</button>
+          <button id="clear-cache" class="cache-button" type="button">刷新</button>
         </div>
       </div>
-      <h1>把喜欢的图片，变成拼豆图纸</h1>
-      <p>自动匹配 MARD 2.6 mm 色卡，每个格子都标注色号。也可以先用一句话抠出主体，再决定是否采用。</p>
+      <h1>做一张属于你的<br><em>拼豆图纸</em></h1>
+      <p>上传图片，选择板子，自动匹配 MARD 2.6 mm 色号。</p>
     </header>
 
     <dialog id="api-settings-dialog" class="settings-dialog">
       <section class="settings-panel" aria-labelledby="api-settings-title">
         <div class="section-title">
-          <div>
-            <span class="release-label">CONTAINER SETTINGS</span>
-            <h2 id="api-settings-title">OpenAI 兼容 API</h2>
-          </div>
+          <div><span class="release-label">CONNECTION</span><h2 id="api-settings-title">图像 API</h2></div>
           <button id="close-api-settings" class="icon-button" type="button" aria-label="关闭">×</button>
         </div>
-        <p class="settings-intro">支持 OpenAI 兼容的图像编辑接口。填写基础 URL（例如 <code>https://api.openai.com/v1</code>）或完整的 <code>/images/edits</code> 地址。</p>
+        <p class="settings-intro">OpenAI 兼容接口可用于云端智能抠图。</p>
         <div class="settings-grid">
-          <label for="settings-password">设置管理密码
-            <input id="settings-password" type="password" autocomplete="current-password" placeholder="容器中的 SETTINGS_PASSWORD">
-            <small>只用于本次操作，不保存在浏览器中。</small>
+          <label for="settings-password">管理密码
+            <input id="settings-password" type="password" autocomplete="current-password" placeholder="SETTINGS_PASSWORD">
           </label>
           <label for="api-url">API URL
             <input id="api-url" type="url" value="https://api.openai.com/v1" spellcheck="false" autocomplete="url">
@@ -47,135 +44,69 @@
           <label for="api-model">图像模型
             <input id="api-model" type="text" value="gpt-image-2" list="api-model-list" spellcheck="false">
             <datalist id="api-model-list"></datalist>
-            <small>“测试连接”后会加载接口实际返回的模型名称。</small>
           </label>
-          <label for="api-quality">图像质量
-            <select id="api-quality">
-              <option value="low">low</option>
-              <option value="medium" selected>medium</option>
-              <option value="high">high</option>
-              <option value="auto">auto</option>
-            </select>
+          <label for="api-quality">质量
+            <select id="api-quality"><option value="low">low</option><option value="medium" selected>medium</option><option value="high">high</option><option value="auto">auto</option></select>
           </label>
         </div>
-        <p class="settings-warning">密钥只会保存到容器的 <code>/data/settings.json</code>，不会返回给页面。请通过 HTTPS 或可信局域网访问设置页。</p>
         <div class="settings-actions">
-          <button id="load-api-settings" class="ghost" type="button">读取当前设置</button>
+          <button id="load-api-settings" class="ghost" type="button">读取</button>
           <button id="test-api-settings" class="ghost" type="button">测试连接</button>
           <button id="clear-api-key" class="ghost danger" type="button">删除密钥</button>
-          <button id="save-api-settings" type="button">保存设置</button>
+          <button id="save-api-settings" type="button">保存</button>
         </div>
         <p id="api-settings-message" class="status" role="status"></p>
-
         <section class="api-log-panel" aria-labelledby="api-log-title">
-          <div class="api-log-heading">
-            <div>
-              <span class="release-label">REAL API TRAFFIC</span>
-              <h3 id="api-log-title">Image API 调用日志</h3>
-            </div>
-            <div class="api-log-actions">
-              <button id="refresh-api-logs" class="ghost" type="button">刷新日志</button>
-              <button id="clear-api-logs" class="ghost danger" type="button">清空日志</button>
-            </div>
-          </div>
-          <p class="settings-intro">只记录真正尝试发送到图像编辑接口的请求。不会保存 API Key、原图、返回图片或完整提示词。</p>
-          <p class="settings-warning">“生成 MARD 色号图纸”目前使用本地算法，不调用 Image API；只有选择云端模式并执行智能抠图时才会产生调用记录。</p>
-          <p id="api-log-message" class="status" role="status">输入设置管理密码后点击“刷新日志”。</p>
+          <div class="api-log-heading"><div><span class="release-label">ACTIVITY</span><h3 id="api-log-title">图像调用记录</h3></div><div class="api-log-actions"><button id="refresh-api-logs" class="ghost" type="button">刷新</button><button id="clear-api-logs" class="ghost danger" type="button">清空</button></div></div>
+          <p id="api-log-message" class="status" role="status">输入管理密码后查看记录。</p>
           <div id="api-log-list" class="api-log-list" aria-live="polite"></div>
         </section>
       </section>
     </dialog>
 
-    <aside class="release-card" aria-labelledby="release-title">
-      <div>
-        <span class="release-label">NEW RELEASE</span>
-        <h2 id="release-title">v0.6.0 更新内容</h2>
-      </div>
-      <ul id="version-changes">
-        <li>新增真实 Image API 调用日志页面</li>
-        <li>显示模型、接口、状态、耗时、请求 ID 和错误</li>
-        <li>日志不会保存密钥、原图或返回图片</li>
-        <li>修复 API 设置无法连续修改并再次保存</li>
-        <li>测试连接会读取真实模型列表并给出建议</li>
-      </ul>
-    </aside>
-
     <section class="card controls">
+      <div class="step-head"><span>01</span><div><h2>选一张图片</h2><small>PNG、JPG 或 WebP，最大 12 MB</small></div></div>
       <label class="drop" id="drop-zone">
         <input id="file" type="file" accept="image/png,image/jpeg,image/webp" required>
-        <span id="file-label">点击选择图片，或拖到这里</span>
-        <small>PNG、JPG 或 WebP，最大 12 MB</small>
+        <span class="drop-icon">＋</span><strong id="file-label">点击上传，或将图片拖到这里</strong>
       </label>
 
       <section id="source-panel" class="source-panel hidden">
         <div class="source-preview checker"><img id="source-preview" alt="原图预览"></div>
         <div class="cutout-controls">
-          <label for="recognition-mode">识图方式</label>
-          <select id="recognition-mode">
-            <option value="local">本地识图（免费，不上传图片）</option>
-            <option value="openai" disabled>OpenAI 兼容 API（未配置）</option>
-          </select>
-          <small id="ai-status">云端模式需要先打开页面顶部的“API 设置”。</small>
-          <label for="cutout-prompt">想保留什么？</label>
-          <div class="inline-form">
-            <input id="cutout-prompt" type="text" maxlength="100" placeholder="可选，例如：人物、红色汽车、白色的猫">
-            <button id="cutout" class="secondary" type="button">智能抠图</button>
-          </div>
-          <small>描述可不填，留空会直接采用原图；填写后执行智能抠图，英文描述效果通常更稳定。</small>
+          <label for="recognition-mode">处理方式</label>
+          <select id="recognition-mode"><option value="local">本地识图</option><option value="openai" disabled>云端识图（未配置）</option></select>
+          <small id="ai-status"></small>
+          <label for="cutout-prompt">智能抠图 <small>（可选）</small></label>
+          <div class="inline-form"><input id="cutout-prompt" type="text" maxlength="100" placeholder="例如：人物、白色的猫"><button id="cutout" class="secondary" type="button">智能抠图</button></div>
           <p id="cutout-message" class="status" role="status"></p>
         </div>
       </section>
 
       <section id="cutout-result" class="cutout-result hidden">
         <div class="section-title"><h2>抠图结果</h2><span class="badge">等待确认</span></div>
-        <div class="cutout-review">
-          <div class="checker"><img id="cutout-preview" alt="抠图结果预览"></div>
-          <div class="review-actions">
-            <button id="use-cutout" type="button">采用这个结果</button>
-            <button id="discard-cutout" class="ghost" type="button">弃用，继续使用原图</button>
-          </div>
-        </div>
+        <div class="cutout-review"><div class="checker"><img id="cutout-preview" alt="抠图结果预览"></div><div class="review-actions"><button id="use-cutout" type="button">采用结果</button><button id="discard-cutout" class="ghost" type="button">继续使用原图</button></div></div>
       </section>
 
-      <div class="fields">
-        <label for="board">板子规格
-          <select id="board" aria-label="板子规格"></select>
-        </label>
-        <div class="palette-note"><strong>MARD 2.6 mm · 221 色</strong><span>自动识别并匹配所需颜色，不限制颜色数量</span></div>
+      <div class="generator-bar">
+        <div class="board-field"><label for="board">02　选择板子</label><select id="board" aria-label="板子规格"></select></div>
+        <div class="palette-note"><strong>MARD 2.6 mm</strong><span>221 色 · 自动匹配</span></div>
+        <button id="generate" type="button">生成图纸 <span>→</span></button>
       </div>
-      <button id="generate" type="button">生成 MARD 色号图纸</button>
       <p id="message" class="status" role="status"></p>
     </section>
 
     <section id="result" class="result hidden">
       <div class="card preview">
-        <div class="section-title"><h2>图纸预览</h2><a id="download" download="mard-bead-pattern.png">下载 PNG</a></div>
-        <p class="editor-help">点击图纸中的任意格子，可以手动修改色号或设为空白。</p>
-        <div class="image-wrap">
-          <canvas id="pattern-editor" class="hidden" aria-label="可编辑的拼豆图纸"></canvas>
-          <img id="pattern" alt="生成的拼豆图纸">
-        </div>
-        <section id="pixel-editor" class="pixel-editor hidden">
-          <div class="pixel-selection">
-            <span id="pixel-preview" class="pixel-preview"></span>
-            <div><strong id="pixel-position">未选择格子</strong><small id="pixel-current"></small></div>
-          </div>
-          <label for="pixel-colour">修改为</label>
-          <select id="pixel-colour"></select>
-          <div class="pixel-actions">
-            <button id="apply-pixel" type="button">应用修改</button>
-            <button id="clear-pixel" class="ghost" type="button">设为空白</button>
-            <button id="undo-pixel" class="ghost" type="button">撤销上一步</button>
-          </div>
-        </section>
+        <div class="section-title"><div><span class="release-label">PATTERN</span><h2>图纸预览</h2></div><a id="download" download="mard-bead-pattern.png">下载 PNG</a></div>
+        <p class="editor-help">点击格子即可手动修正色号。</p>
+        <div class="image-wrap"><canvas id="pattern-editor" class="hidden" aria-label="可编辑的拼豆图纸"></canvas><img id="pattern" alt="生成的拼豆图纸"></div>
+        <section id="pixel-editor" class="pixel-editor hidden"><div class="pixel-selection"><span id="pixel-preview" class="pixel-preview"></span><div><strong id="pixel-position">未选择格子</strong><small id="pixel-current"></small></div></div><label for="pixel-colour">修改为</label><select id="pixel-colour"></select><div class="pixel-actions"><button id="apply-pixel" type="button">应用</button><button id="clear-pixel" class="ghost" type="button">设为空白</button><button id="undo-pixel" class="ghost" type="button">撤销</button></div></section>
       </div>
-      <div class="card summary">
-        <div class="section-title"><h2>材料清单</h2><span id="total"></span></div>
-        <div id="palette"></div>
-      </div>
+      <div class="card summary"><div class="section-title"><div><span class="release-label">MATERIALS</span><h2>材料清单</h2></div><span id="total"></span></div><div id="palette"></div></div>
     </section>
   </main>
-  <script src="/static/logs.js?v=0.6.0"></script>
-  <script type="module" src="/static/app.js?v=0.6.0"></script>
+  <script src="/static/logs.js?build=ui-refresh-1"></script>
+  <script type="module" src="/static/app.js?build=ui-refresh-1"></script>
 </body>
 </html>
