@@ -1,4 +1,7 @@
+from io import BytesIO
+
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.main import app
 from app.settings import load_settings
@@ -72,3 +75,23 @@ def test_board_api_exposes_common_pegboard_sizes():
         (104, 104),
     ]
     assert [item["id"] for item in boards] == ["52x52", "72x72", "78x78", "104x104"]
+
+
+def test_local_cutout_api_uses_container_engine(monkeypatch):
+    input_image = Image.new("RGB", (4, 4), (20, 30, 40))
+    input_buffer = BytesIO()
+    input_image.save(input_buffer, format="PNG")
+    output_image = Image.new("RGBA", (4, 4), (20, 30, 40, 255))
+    output_image.putpixel((0, 0), (20, 30, 40, 0))
+    output_buffer = BytesIO()
+    output_image.save(output_buffer, format="PNG")
+
+    monkeypatch.setattr("app.main.remove_background_locally", lambda raw: output_buffer.getvalue())
+    response = client.post(
+        "/api/local-cutout",
+        files={"image": ("subject.png", input_buffer.getvalue(), "image/png")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["engine"].startswith("容器本地分割")
+    assert response.json()["image"].startswith("data:image/png;base64,")
