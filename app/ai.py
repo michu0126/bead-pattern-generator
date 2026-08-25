@@ -260,8 +260,7 @@ async def remove_background(
             raise AIServiceError(detail)
         log_call(True, response=response, output_bytes=len(result), alpha_info=alpha_info)
         return result
-    except AIServiceError as error:
-        log_call(False, response=response, error=str(error))
+    except AIServiceError:
         raise
     except (KeyError, IndexError, TypeError, ValueError, OSError) as error:
         log_call(False, response=response, error="API 没有返回兼容的 b64_json 图片")
