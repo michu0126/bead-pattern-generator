@@ -12,6 +12,7 @@
 - 自动识别画面所需颜色，不设置人为颜色数量上限
 - 使用 MARD 2.6 mm 经典 221 色参考表，在 CIE Lab 色彩空间匹配近似色
 - 图纸中每一颗豆都显示 MARD 色号
+- 容器内置离线分割模型，一键生成透明背景 PNG，不需要 API Key 或 Token
 - 文字提示抠图；采用结果后，透明区域显示为空格且不计入豆子用量
 - 可选 OpenAI 或兼容 API 的两阶段云端抠图：视觉模型识别主体选项，图像编辑模型执行抠图
 - 容器内 API 设置页可填写 URL、API Key、模型和质量，并测试连接
@@ -74,7 +75,9 @@ GHCR 镜像地址为 `ghcr.io/michu0126/bead-pattern-generator:latest`。
 
 ## 抠图说明
 
-抠图使用 Transformers.js 和 `Xenova/clipseg-rd64-refined`，直接在浏览器里根据文字提示识别主体。第一次使用会从 Hugging Face 下载模型，速度取决于访问网络；下载后通常会进入浏览器缓存。中文常见主体会做简单转换，但较复杂场景建议使用英文描述。
+默认的“容器本地抠图”使用内置的 `isnet-general-use` 通用前景分割模型，模型随镜像构建下载。它直接在群晖容器 CPU 中运行，输出带透明通道的 PNG：不需要 API Key，不会消耗 Token，也不会把图片发送到外部服务。首次处理会加载模型，通常需要几秒到十几秒。
+
+“浏览器文字识图”使用 Transformers.js 和 `Xenova/clipseg-rd64-refined`，直接在浏览器里根据文字提示识别主体。第一次使用会从 Hugging Face 下载模型，速度取决于访问网络；下载后通常会进入浏览器缓存。中文常见主体会做简单转换，但较复杂场景建议使用英文描述。
 
 不使用抠图时，生成图纸不依赖外部服务。抠图失败也不会影响原图生成。
 
@@ -131,6 +134,7 @@ docker run --rm -p 18026:18026 bead-pattern-generator
 - `PUT /api/settings`：保存 API 设置，需要 `X-Settings-Password`
 - `DELETE /api/settings/key`：删除已保存的 API Key，需要 `X-Settings-Password`
 - `POST /api/settings/test`：测试兼容接口的 `/models`，需要 `X-Settings-Password`
+- `POST /api/local-cutout`：使用容器内置分割模型生成透明背景 PNG，不需要 API Key
 - `POST /api/ai/subjects`：使用视觉模型分析原图并返回主体选项
 - `POST /api/ai/cutout`：使用配置的 OpenAI 兼容图像编辑接口返回透明背景结果
 - `POST /api/generate`：字段为图片 `image` 和板型编号 `board`
@@ -140,6 +144,7 @@ docker run --rm -p 18026:18026 bead-pattern-generator
 
 - 板型参考：[Artkal 2.6 mm pegboard](https://www.artkalfusebeads.com/products/artkal-clear-large-square-pegboard-for-mini-2-6mm-beads-bcp01)
 - MARD 标准 221 色 HEX：以 [Yaya 2.6 mm MARD 映射](https://github.com/carolineyang095-code/ycs-beads-converter/blob/main/colorSystemMapping.json) 为数据基准，并与 [Bitbead MARD 221](https://www.bitbead.app/zh-TW/colors/mard/) 和 [拼豆工具站 MARD 221](https://www.pindou.online/colors) 交叉核对
+- 容器本地分割模型：[rembg / isnet-general-use](https://github.com/danielgatis/rembg)
 - 文字分割模型：[Xenova/clipseg-rd64-refined](https://huggingface.co/Xenova/clipseg-rd64-refined)
 
 ## 自动发布
