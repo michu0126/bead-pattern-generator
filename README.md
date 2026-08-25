@@ -2,7 +2,7 @@
 
 把图片转换成 MARD 2.6 mm 拼豆图纸。应用会自动从 221 色参考色卡中匹配颜色，在每个格子内标出色号，并生成用量清单。支持用文字描述主体，在浏览器中先抠图、预览，再选择采用或弃用。
 
-当前版本：**v0.8.0**。本版新增“识图 → 选择主体 → 图像编辑抠图”的两阶段云端流程，支持分别配置 gpt-5.5 等识图模型与 GPT Image 图像编辑模型；同时优化 50×50、52×52 小板主体聚焦和外部白底弃用。
+当前版本：**v0.9.0**。本版适配常用的 52、72、78、104 钉正方形单板，并将板型下拉框改为可直观看到尺寸和选中状态的规格卡片。
 
 生成前会检测近白色区域：连接画面边缘、或与主体不直接相连的独立白色区域会被当成背景留空；封闭图形内部且紧贴主体的白色仍会保留。
 
@@ -138,7 +138,7 @@ docker run --rm -p 18026:18026 bead-pattern-generator
 
 ## 数据与模型来源
 
-- 板型参考：[Artkal 2.6 mm 50×50 / 52×52 pegboard](https://www.artkalfusebeads.com/products/artkal-clear-large-square-pegboard-for-mini-2-6mm-beads-bcp01)
+- 板型参考：[Artkal 2.6 mm pegboard](https://www.artkalfusebeads.com/products/artkal-clear-large-square-pegboard-for-mini-2-6mm-beads-bcp01)
 - MARD 标准 221 色 HEX：以 [Yaya 2.6 mm MARD 映射](https://github.com/carolineyang095-code/ycs-beads-converter/blob/main/colorSystemMapping.json) 为数据基准，并与 [Bitbead MARD 221](https://www.bitbead.app/zh-TW/colors/mard/) 和 [拼豆工具站 MARD 221](https://www.pindou.online/colors) 交叉核对
 - 文字分割模型：[Xenova/clipseg-rd64-refined](https://huggingface.co/Xenova/clipseg-rd64-refined)
 
