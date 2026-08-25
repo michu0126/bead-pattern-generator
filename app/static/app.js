@@ -48,8 +48,10 @@ async function loadVersion() {
     if (!response.ok) throw new Error();
     const data = await response.json();
     $('#app-version').textContent = data.version;
-    $('#release-title').textContent = `v${data.version} 更新内容`;
-    $('#version-changes').innerHTML = data.changes.map(change => `<li>${change}</li>`).join('');
+    const releaseTitle = $('#release-title');
+    const versionChanges = $('#version-changes');
+    if (releaseTitle) releaseTitle.textContent = `v${data.version} 更新内容`;
+    if (versionChanges && Array.isArray(data.changes)) versionChanges.innerHTML = data.changes.map(change => `<li>${change}</li>`).join('');
   } catch (_) {
     // HTML 内保留版本信息，旧后端或临时网络异常时仍然可见。
   }
