@@ -555,23 +555,83 @@ $('#undo-pixel').addEventListener('click', () => {
   updatePixelPanel();
 });
 
-function showDirectImage2Pattern(data) {
-  patternGrid = [];
-  selectedCell = null;
-  editHistory = [];
-  $('#pattern').src = data.image;
-  $('#download').href = data.image;
-  $('#pattern').classList.remove('hidden');
-  canvas.classList.add('hidden');
-  $('#pixel-editor').classList.add('hidden');
-  const rows = Array.isArray(data.palette) ? data.palette : [];
-  if (rows.length) {
-    renderMaterials(rows, data.total || rows.reduce((sum, item) => sum + item.count, 0), data.board);
-    if (data.material_warning) $('#palette').insertAdjacentHTML('afterbegin', `<p class="status">${data.material_warning}</p>`);
-  } else {
-    $('#total').textContent = 'Image2 识图生成';
-    $('#palette').innerHTML = '<p class="status">' + (data.material_warning || 'Image2 图纸已生成，但材料清单识别暂不可用。') + '</p>';
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('无法读取 Image2 图纸'));
+    image.src = dataUrl;
+  });
+}
+
+function closestMardCode(rgb) {
+  let closest = null;
+  let distance = Number.POSITIVE_INFINITY;
+  colourByCode.forEach(colour => {
+    const score = (rgb[0] - colour.rgb[0]) ** 2 + (rgb[1] - colour.rgb[1]) ** 2 + (rgb[2] - colour.rgb[2]) ** 2;
+    if (score < distance) {
+      closest = colour.code;
+      distance = score;
+    }
+  });
+  return closest;
+}
+
+function clearExteriorWhite(grid) {
+  const rows = grid.length;
+  const columns = grid[0]?.length || 0;
+  const isWhite = code => {
+    const rgb = colourByCode.get(code)?.rgb;
+    return rgb && rgb[0] > 238 && rgb[1] > 238 && rgb[2] > 238;
+  };
+  const queue = [];
+  const enqueue = (row, column) => {
+    if (row < 0 || column < 0 || row >= rows || column >= columns || !isWhite(grid[row][column])) return;
+    grid[row][column] = null;
+    queue.push([row, column]);
+  };
+  for (let column = 0; column < columns; column += 1) { enqueue(0, column); enqueue(rows - 1, column); }
+  for (let row = 0; row < rows; row += 1) { enqueue(row, 0); enqueue(row, columns - 1); }
+  while (queue.length) {
+    const [row, column] = queue.shift();
+    enqueue(row - 1, column); enqueue(row + 1, column); enqueue(row, column - 1); enqueue(row, column + 1);
   }
+}
+
+async function image2Grid(data) {
+  const board = data.board;
+  const image = await loadImage(data.image);
+  const sampler = document.createElement('canvas');
+  sampler.width = image.naturalWidth;
+  sampler.height = image.naturalHeight;
+  const samplerContext = sampler.getContext('2d', { willReadFrequently: true });
+  samplerContext.drawImage(image, 0, 0);
+  const pixels = samplerContext.getImageData(0, 0, sampler.width, sampler.height).data;
+  const offsets = [0.18, 0.32, 0.68, 0.82];
+  const codeAt = (row, column) => {
+    const votes = new Map();
+    offsets.forEach(yOffset => offsets.forEach(xOffset => {
+      const x = Math.min(sampler.width - 1, Math.floor((column + xOffset) * sampler.width / board.width));
+      const y = Math.min(sampler.height - 1, Math.floor((row + yOffset) * sampler.height / board.height));
+      const index = (y * sampler.width + x) * 4;
+      if (pixels[index + 3] < 128) return;
+      const code = closestMardCode([pixels[index], pixels[index + 1], pixels[index + 2]]);
+      votes.set(code, (votes.get(code) || 0) + 1);
+    }));
+    return [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  };
+  const grid = Array.from({ length: board.height }, (_, row) => Array.from({ length: board.width }, (_, column) => codeAt(row, column)));
+  clearExteriorWhite(grid);
+  return grid;
+}
+
+async function showDirectImage2Pattern(data) {
+  availableColours = data.colours || [];
+  colourByCode = new Map(availableColours.map(item => [item.code, item]));
+  if (!colourByCode.size) throw new Error('Image2 图纸缺少 MARD 色卡数据，无法进入编辑器');
+  const grid = await image2Grid(data);
+  initializeEditor({ grid, colours: availableColours });
+  if (data.material_warning) $('#palette').insertAdjacentHTML('afterbegin', `<p class="status">${data.material_warning}</p>`);
 }
 
 async function generatePattern(mode) {
@@ -589,11 +649,11 @@ async function generatePattern(mode) {
     const response = await fetch(isImage2 ? '/api/ai/generate-pattern' : '/api/generate', { method: 'POST', body: form });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || (isImage2 ? 'Image2 图纸生成失败' : '本地图纸生成失败'));
-    if (isImage2) showDirectImage2Pattern(data);
+    if (isImage2) await showDirectImage2Pattern(data);
     else initializeEditor(data);
     $('#result').classList.remove('hidden');
     message.textContent = isImage2
-      ? (data.engine || 'Image2') + ' 图纸已生成，请下载并核对格线、色号与材料清单。'
+      ? (data.engine || 'Image2') + ' 图纸已解析为可编辑色块，可点击任意格子修正色号。'
       : '本地图纸已生成，可点击格子手动修正色号。';
     $('#result').scrollIntoView({ behavior: 'smooth' });
   } catch (error) {
@@ -610,5 +670,6 @@ image2GenerateButton.addEventListener('click', () => generatePattern('image2'));
 loadVersion();
 loadConfig();
 loadBoards();
+
 
 
