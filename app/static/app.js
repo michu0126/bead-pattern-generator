@@ -12,7 +12,8 @@ const cutoutMessage = $('#cutout-message');
 const cutoutResult = $('#cutout-result');
 const cutoutPreview = $('#cutout-preview');
 const recognitionMode = $('#recognition-mode');
-const generateButton = $('#generate');
+const localGenerateButton = $('#generate-local');
+const image2GenerateButton = $('#generate-image2');
 const message = $('#message');
 const clearCacheButton = $('#clear-cache');
 const settingsDialog = $('#api-settings-dialog');
@@ -459,18 +460,26 @@ function drawPattern() {
   $('#download').href = canvas.toDataURL('image/png');
 }
 
-function refreshMaterials() {
-  const { counts, total, rows, columns, empty } = summarizeGrid(patternGrid);
-  $('#total').textContent = `${columns} × ${rows} · ${total} 颗${empty ? ` · ${empty} 格留空` : ''}`;
-  const items = [...counts.entries()]
-    .map(([code, count]) => ({ ...colourByCode.get(code), count }))
-    .sort((a, b) => b.count - a.count);
+function renderMaterials(items, total, board, empty = 0) {
+  const width = board?.width || board?.columns;
+  const height = board?.height || board?.rows;
+  $('#total').textContent = width && height
+    ? `${width} × ${height} · ${total} 颗${empty ? ` · ${empty} 格留空` : ''}`
+    : `${total} 颗`;
   $('#palette').innerHTML = items.map(item => `
     <div class="swatch-row">
-      <span class="swatch" style="background:rgb(${item.rgb.join(',')})"></span>
+      <span class="swatch" style="background:${item.rgb ? `rgb(${item.rgb.join(',')})` : item.hex}"></span>
       <span><strong>${item.code}</strong><small>MARD 2.6 mm</small></span>
       <strong>${item.count} 颗</strong>
     </div>`).join('');
+}
+
+function refreshMaterials() {
+  const { counts, total, rows, columns, empty } = summarizeGrid(patternGrid);
+  const items = [...counts.entries()]
+    .map(([code, count]) => ({ ...colourByCode.get(code), count }))
+    .sort((a, b) => b.count - a.count);
+  renderMaterials(items, total, { width: columns, height: rows }, empty);
 }
 
 function updatePixelPanel() {
@@ -556,35 +565,50 @@ function showDirectImage2Pattern(data) {
   canvas.classList.add('hidden');
   $('#pixel-editor').classList.add('hidden');
   const rows = Array.isArray(data.palette) ? data.palette : [];
-  $('#total').textContent = rows.length ? 'AI 识别材料 ' + (data.total || 0) + ' 颗' : 'Image2 直接生成';
-  $('#palette').innerHTML = rows.length
-    ? '<p class="status">以下为视觉模型读取图纸得到的材料清单，请核对色号与数量。</p>' + rows.map(item => '<div class="palette-row"><span class="swatch" style="background:' + item.hex + '"></span><strong>' + item.code + '</strong><span>' + item.name + '</span><b>' + item.count + ' 颗</b></div>').join('')
-    : '<p class="status">' + (data.material_warning || 'Image2 图纸已生成，但材料清单识别暂不可用。') + '</p>';
+  if (rows.length) {
+    renderMaterials(rows, data.total || rows.reduce((sum, item) => sum + item.count, 0), data.board);
+    if (data.material_warning) $('#palette').insertAdjacentHTML('afterbegin', `<p class="status">${data.material_warning}</p>`);
+  } else {
+    $('#total').textContent = 'Image2 识图生成';
+    $('#palette').innerHTML = '<p class="status">' + (data.material_warning || 'Image2 图纸已生成，但材料清单识别暂不可用。') + '</p>';
+  }
 }
 
-generateButton.addEventListener('click', async () => {
+async function generatePattern(mode) {
   if (!workingBlob) { message.textContent = '请先选择并确认抠图结果。'; return; }
   const form = new FormData();
   form.append('image', workingBlob, workingBlob.type === 'image/png' ? 'subject.png' : 'subject.jpg');
   form.append('board', $('#board').value);
-  generateButton.disabled = true;
-  message.textContent = '正在交由 Image2 生成拼豆图纸，可能产生费用…';
+  const isImage2 = mode === 'image2';
+  localGenerateButton.disabled = true;
+  image2GenerateButton.disabled = true;
+  message.textContent = isImage2
+    ? '正在交由 Image2 识图生成拼豆图纸，可能产生费用…'
+    : '正在使用本地算法生成拼豆图纸…';
   try {
-    const response = await fetch('/api/ai/generate-pattern', { method: 'POST', body: form });
+    const response = await fetch(isImage2 ? '/api/ai/generate-pattern' : '/api/generate', { method: 'POST', body: form });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Image2 图纸生成失败');
-    showDirectImage2Pattern(data);
+    if (!response.ok) throw new Error(data.detail || (isImage2 ? 'Image2 图纸生成失败' : '本地图纸生成失败'));
+    if (isImage2) showDirectImage2Pattern(data);
+    else initializeEditor(data);
     $('#result').classList.remove('hidden');
-    message.textContent = (data.engine || 'Image2') + ' 图纸已生成，请下载并核对格线与色号。';
+    message.textContent = isImage2
+      ? (data.engine || 'Image2') + ' 图纸已生成，请下载并核对格线、色号与材料清单。'
+      : '本地图纸已生成，可点击格子手动修正色号。';
     $('#result').scrollIntoView({ behavior: 'smooth' });
   } catch (error) {
     message.textContent = error.message;
   } finally {
-    generateButton.disabled = false;
+    localGenerateButton.disabled = false;
+    image2GenerateButton.disabled = false;
   }
-});
+}
+
+localGenerateButton.addEventListener('click', () => generatePattern('local'));
+image2GenerateButton.addEventListener('click', () => generatePattern('image2'));
 
 loadVersion();
 loadConfig();
 loadBoards();
+
 

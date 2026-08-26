@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css?build=v1.4.2">
-  <link rel="stylesheet" href="/static/logs.css?build=v1.4.2">
+  <link rel="stylesheet" href="/static/style.css?build=v1.5.0">
+  <link rel="stylesheet" href="/static/logs.css?build=v1.5.0">
 </head>
 <body>
   <div class="bead-backdrop" aria-hidden="true"></div>
@@ -14,7 +14,7 @@
       <div class="topline">
         <span class="brand"><i></i> 拼豆工作台</span>
         <div class="version-actions">
-          <span class="version-badge">v<span id="app-version">1.4.2</span></span>
+          <span class="version-badge">v<span id="app-version">1.5.0</span></span>
           <button id="open-api-settings" class="cache-button" type="button">API 设置</button>
           <button id="clear-cache" class="cache-button" type="button">刷新</button>
         </div>
@@ -99,7 +99,10 @@
           <div id="board-options" class="board-options" role="radiogroup" aria-label="板子规格"></div>
         </section>
         <div class="palette-note"><strong>MARD 2.6 mm</strong><span>221 色 · 自动匹配</span></div>
-        <button id="generate" type="button">生成图纸 <span>→</span></button>
+        <div class="generator-actions" aria-label="生成方式" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <button id="generate-local" class="ghost" type="button">本地算法生成</button>
+          <button id="generate-image2" type="button">Image2 识图生成 <span>→</span></button>
+        </div>
       </div>
       <p id="message" class="status" role="status"></p>
     </section>
@@ -115,8 +118,9 @@
     </section>
   </main>
   <script src="/static/logs.js?build=ui-refresh-1"></script>
-  <script type="module" src="/static/app.js?build=v1.4.2"></script>
+  <script type="module" src="/static/app.js?build=v1.5.0"></script>
 </body>
 </html>
+
 
 

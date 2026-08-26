@@ -29,8 +29,10 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.5.0"
 VERSION_CHANGES = [
+    "生成图纸拆分为本地算法生成与 Image2 识图生成两个入口",
+    "Image2 识图生成的材料清单改为与本地图纸相同的色号、数量与总数样式",
     "修复前端脚本语法错误，恢复图片上传与拼豆板规格选项",
     "修复页面版本请求异常时错误显示 v0.6.0 的问题",
     "抠图处理方式精简为本地抠图与 AI 抠图两个选项",
@@ -417,5 +419,6 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse("app/static/index.html")
+
 
 
