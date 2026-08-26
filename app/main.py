@@ -29,8 +29,9 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 VERSION_CHANGES = [
+    "修复前端脚本语法错误，恢复图片上传与拼豆板规格选项",
     "修复页面版本请求异常时错误显示 v0.6.0 的问题",
     "抠图处理方式精简为本地抠图与 AI 抠图两个选项",
     "移除浏览器文字识图及视觉模型识别主体后再抠图的界面流程",
@@ -416,4 +417,5 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse("app/static/index.html")
+
 
