@@ -29,8 +29,10 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.6.0"
 VERSION_CHANGES = [
+    "Image2 识图生成的图纸可解析为 MARD 像素网格，并支持逐格改色、留空与撤销",
+    "Image2 图纸进入编辑器后，材料清单会按当前网格实时重算",
     "生成图纸拆分为本地算法生成与 Image2 识图生成两个入口",
     "Image2 识图生成的材料清单改为与本地图纸相同的色号、数量与总数样式",
     "修复前端脚本语法错误，恢复图片上传与拼豆板规格选项",
@@ -368,6 +370,15 @@ async def ai_generate_pattern(
         "palette": palette,
         "total": sum(item["count"] for item in palette),
         "material_warning": material_warning,
+        "colours": [
+            {
+                "code": item["code"],
+                "name": item["name"],
+                "hex": item["hex"],
+                "rgb": list(item["rgb"]),
+            }
+            for item in BEAD_PALETTE
+        ],
         "image": "data:image/png;base64," + base64.b64encode(result).decode("ascii"),
     }
 
@@ -419,6 +430,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse("app/static/index.html")
+
 
 
 
