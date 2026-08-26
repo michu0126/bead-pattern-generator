@@ -385,19 +385,6 @@ async function runContainerCutout() {
 
 cutoutButton.addEventListener('click', async () => {
   if (!sourceBlob) { cutoutMessage.textContent = '请先选择一张图片。'; return; }
-  if (!cutoutPrompt.value.trim() && recognitionMode.value === 'local') {
-    workingBlob = sourceBlob;
-    proposedCutout = null;
-    aiSubjectPanel.classList.add('hidden');
-    cutoutResult.classList.add('hidden');
-    cutoutMessage.textContent = '浏览器文字识图需要主体描述；未填写时已直接采用原图。';
-    message.textContent = '已采用原图，可以生成图纸。';
-    return;
-  }
-  cutoutButton.disabled = true;
-  cutoutMessage.textContent = recognitionMode.value === 'openai'
-    ? '正在分析图cutoutButton.addEventListener('click', async () => {
-  if (!sourceBlob) { cutoutMessage.textContent = '请先选择一张图片。'; return; }
   cutoutButton.disabled = true;
   cutoutMessage.textContent = recognitionMode.value === 'image2'
     ? 'AI 正在处理图片，可能产生费用…'
@@ -600,3 +587,4 @@ generateButton.addEventListener('click', async () => {
 loadVersion();
 loadConfig();
 loadBoards();
+
