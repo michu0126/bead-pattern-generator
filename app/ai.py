@@ -400,7 +400,7 @@ async def generate_direct_bead_pattern(
     width: int,
     height: int,
 ) -> bytes:
-    """Ask Image2 for a final bead chart after the user has confirmed the cutout."""
+    """Ask Image2 for a final bead chart from the exact image chosen by the user."""
     try:
         settings = load_settings()
     except SettingsError as error:
@@ -410,14 +410,14 @@ async def generate_direct_bead_pattern(
 
     palette_reference = "; ".join(f"{item['code']}={item['hex']}" for item in BEAD_PALETTE)
     prompt = (
-        "Create a print-ready MARD 2.6 mm fused-bead pattern from the supplied isolated subject. "
+        "Create a print-ready MARD 2.6 mm fused-bead pattern from the supplied image. "
         f"The chart must contain exactly {width} columns and {height} rows of equal square cells. "
-        "Preserve the subject silhouette, pose, proportions and all recognizable details, but express it as clear discrete bead cells. "
+        "Preserve the complete input composition, including all visible subjects, background, objects, colours, and spatial relationships; express the entire image as clear discrete bead cells. "
+        "Do not isolate a subject, remove a background, crop the image, or discard any opaque part of the supplied image. "
+        "Only input pixels that are already transparent may become blank cells. "
         "Every occupied cell must use only one of the following MARD code and HEX pairs, filled with that exact HEX and printed with its exact code: "
         f"{palette_reference}. "
-        "Leave only cells outside the subject blank white; do not use H2 for exterior background. "
-        "Every enclosed or internal white region of the subject, including eyes, face fills, highlights, and holes, is a real bead area: "
-        "fill it with the closest MARD white code and print that code in every occupied white cell. "
+        "Use a MARD white code, with its code printed, for every opaque white area of the input. "
         "Draw only the rectangular bead grid and code labels. Do not add a title, legend, decorative border, watermark, prose, extra objects, or a second image. "
         "Return a high-resolution PNG of the complete chart."
     )
@@ -576,3 +576,4 @@ async def extract_direct_pattern_materials(chart: bytes, width: int, height: int
         raise AIServiceError("识图模型没有返回可用的材料清单")
     log_call(True)
     return materials
+
