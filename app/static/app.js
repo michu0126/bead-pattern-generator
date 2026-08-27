@@ -635,7 +635,7 @@ async function showDirectImage2Pattern(data) {
 }
 
 async function generatePattern(mode) {
-  if (!workingBlob) { message.textContent = '请先选择并确认抠图结果。'; return; }
+  if (!workingBlob) { message.textContent = '请先上传一张图片。'; return; }
   const form = new FormData();
   form.append('image', workingBlob, workingBlob.type === 'image/png' ? 'subject.png' : 'subject.jpg');
   form.append('board', $('#board').value);
@@ -670,6 +670,7 @@ image2GenerateButton.addEventListener('click', () => generatePattern('image2'));
 loadVersion();
 loadConfig();
 loadBoards();
+
 
 
 
