@@ -29,8 +29,9 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.6.1"
 VERSION_CHANGES = [
+    "Image2 图纸生成默认保留整张原图，只有采用抠图结果时才使用透明背景图",
     "Image2 识图生成的图纸可解析为 MARD 像素网格，并支持逐格改色、留空与撤销",
     "Image2 图纸进入编辑器后，材料清单会按当前网格实时重算",
     "生成图纸拆分为本地算法生成与 Image2 识图生成两个入口",
@@ -430,6 +431,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse("app/static/index.html")
+
 
 
 

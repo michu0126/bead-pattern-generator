@@ -221,6 +221,7 @@ def test_image2_direct_pattern_request_includes_board_and_mard_palette(monkeypat
             assert data["model"] == "gpt-image-2"
             assert "exactly 52 columns and 52 rows" in data["prompt"]
             assert "H7=#000000" in data["prompt"]
+            assert "Do not isolate a subject" in data["prompt"]
             assert data["background"] == "opaque"
             return FakeResponse()
 
@@ -253,3 +254,4 @@ def test_vision_material_reader_returns_only_known_mard_codes(monkeypatch):
     monkeypatch.setattr("app.ai.httpx.AsyncClient", FakeClient)
     materials = asyncio.run(extract_direct_pattern_materials(b"chart", 52, 52))
     assert materials == [{"code": "H2", "count": 5}]
+
