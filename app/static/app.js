@@ -171,7 +171,8 @@ settingsDialog.addEventListener('click', event => {
 });
 
 $('#load-api-settings').addEventListener('click', async event => {
-  event.currentTarget.disabled = true;
+  const button = event.currentTarget;
+  button.disabled = true;
   settingsMessage.textContent = '正在读取…';
   try {
     await loadAPISettings();
@@ -179,13 +180,14 @@ $('#load-api-settings').addEventListener('click', async event => {
   } catch (error) {
     settingsMessage.textContent = error.message;
   } finally {
-    event.currentTarget.disabled = false;
+    button.disabled = false;
   }
 });
 
 $('#test-api-settings').addEventListener('click', async event => {
   if (!settingsPassword()) { settingsMessage.textContent = '请先输入设置管理密码。'; return; }
-  event.currentTarget.disabled = true;
+  const button = event.currentTarget;
+  button.disabled = true;
   settingsMessage.textContent = '正在请求兼容接口的 /models…';
   try {
     const data = await settingsRequest('/api/settings/test', {
@@ -200,13 +202,14 @@ $('#test-api-settings').addEventListener('click', async event => {
   } catch (error) {
     settingsMessage.textContent = error.message;
   } finally {
-    event.currentTarget.disabled = false;
+    button.disabled = false;
   }
 });
 
 $('#save-api-settings').addEventListener('click', async event => {
   if (!settingsPassword()) { settingsMessage.textContent = '请先输入设置管理密码。'; return; }
-  event.currentTarget.disabled = true;
+  const button = event.currentTarget;
+  button.disabled = true;
   settingsMessage.textContent = '正在保存…';
   try {
     const data = await settingsRequest('/api/settings', {
@@ -218,23 +221,24 @@ $('#save-api-settings').addEventListener('click', async event => {
   } catch (error) {
     settingsMessage.textContent = error.message;
   } finally {
-    event.currentTarget.disabled = false;
+    button.disabled = false;
   }
 });
 
-['#api-url', '#api-key', '#api-model', '#api-quality'].forEach(selector => {
+['#api-url', '#api-key', '#api-model', '#vision-model', '#api-quality'].forEach(selector => {
   const field = $(selector);
   const eventName = field.tagName === 'SELECT' ? 'change' : 'input';
   field.addEventListener(eventName, () => {
     $('#save-api-settings').disabled = false;
-    settingsMessage.textContent = '设置已修改，点击“保存设置”应用新值。';
+    settingsMessage.textContent = '设置已修改，点击“保存”应用新值。';
   });
 });
 
 $('#clear-api-key').addEventListener('click', async event => {
   if (!settingsPassword()) { settingsMessage.textContent = '请先输入设置管理密码。'; return; }
   if (!window.confirm('确定删除容器中保存的 API Key 吗？云端识图会立即停用。')) return;
-  event.currentTarget.disabled = true;
+  const button = event.currentTarget;
+  button.disabled = true;
   try {
     const data = await settingsRequest('/api/settings/key', { method: 'DELETE' });
     fillAPISettings(data);
@@ -243,7 +247,7 @@ $('#clear-api-key').addEventListener('click', async event => {
   } catch (error) {
     settingsMessage.textContent = error.message;
   } finally {
-    event.currentTarget.disabled = false;
+    button.disabled = false;
   }
 });
 
@@ -501,6 +505,7 @@ function initializeEditor(data) {
   availableColours = data.colours;
   colourByCode = new Map(availableColours.map(item => [item.code, item]));
   selectedCell = null;
+  updatePixelPanel();
   editHistory = [];
   $('#pixel-colour').innerHTML = [
     '<option value="">空白（不放豆）</option>',

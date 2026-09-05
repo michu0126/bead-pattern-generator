@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css?build=v1.6.1">
-  <link rel="stylesheet" href="/static/logs.css?build=v1.6.1">
+  <link rel="stylesheet" href="/static/style.css?build=v1.7.0">
+  <link rel="stylesheet" href="/static/logs.css?build=v1.7.0">
 </head>
 <body>
   <div class="bead-backdrop" aria-hidden="true"></div>
@@ -14,13 +14,19 @@
       <div class="topline">
         <span class="brand"><i></i> 拼豆工作台</span>
         <div class="version-actions">
-          <span class="version-badge">v<span id="app-version">1.6.1</span></span>
+          <span class="version-badge">v<span id="app-version">1.7.0</span></span>
           <button id="open-api-settings" class="cache-button" type="button">API 设置</button>
           <button id="clear-cache" class="cache-button" type="button">刷新</button>
         </div>
       </div>
-      <h1>做一张属于你的<br><em>拼豆图纸</em></h1>
-      <p>上传图片，选择板子，自动匹配 MARD 2.6 mm 色号。</p>
+      <div class="hero-content">
+        <div class="hero-copy"><span class="eyebrow">BEAD BY BEAD · 一颗一颗，拼出喜欢</span>
+          <h1>把喜欢的画面，<br>拼成<em>小小的快乐。</em></h1>
+          <p>从一张图片，到一份属于你的拼豆图纸。</p>
+          <div class="hero-tags"><span>221 色 MARD 色卡</span><span>自由编辑每一格</span><span>材料用量一目了然</span></div>
+        </div>
+        <figure class="hero-art"><img src="/static/bead-background.svg?build=v1.7.0" alt="用粉色和绿色豆粒拼成的小花图案"><figcaption>MAKE SOMETHING YOU LOVE</figcaption></figure>
+      </div>
     </header>
 
     <dialog id="api-settings-dialog" class="settings-dialog">
@@ -29,7 +35,7 @@
           <div><span class="release-label">CONNECTION</span><h2 id="api-settings-title">图像 API</h2></div>
           <button id="close-api-settings" class="icon-button" type="button" aria-label="关闭">×</button>
         </div>
-        <p class="settings-intro">OpenAI 兼容接口可用于云端智能抠图。</p>
+        <p class="settings-intro">管理 AI 抠图、Image2 图纸与材料识别的接口。</p>
         <div class="settings-grid">
           <label for="settings-password">管理密码
             <input id="settings-password" type="password" autocomplete="current-password" placeholder="SETTINGS_PASSWORD">
@@ -47,7 +53,7 @@
           </label>
           <label for="vision-model">识图模型
             <input id="vision-model" type="text" value="gpt-5.5" list="api-model-list" spellcheck="false">
-            <small>仅分析图片并列出主体；最终抠图仍使用上方图像编辑模型。</small>
+            <small>用于读取 AI 图纸中的材料色号与数量。</small>
           </label>
           <label for="api-quality">质量
             <select id="api-quality"><option value="low">low</option><option value="medium" selected>medium</option><option value="high">high</option><option value="auto">auto</option></select>
@@ -72,7 +78,7 @@
       <div class="step-head"><span>01</span><div><h2>选一张图片</h2><small>PNG、JPG 或 WebP，最大 12 MB</small></div></div>
       <label class="drop" id="drop-zone">
         <input id="file" type="file" accept="image/png,image/jpeg,image/webp" required>
-        <span class="drop-icon">＋</span><strong id="file-label">点击上传，或将图片拖到这里</strong>
+        <span class="drop-icon" aria-hidden="true">＋</span><strong id="file-label">把灵感放在这里</strong><span class="upload-hint">点击选择图片，或拖拽上传</span>
       </label>
 
       <section id="source-panel" class="source-panel hidden">
@@ -99,9 +105,9 @@
           <div id="board-options" class="board-options" role="radiogroup" aria-label="板子规格"></div>
         </section>
         <div class="palette-note"><strong>MARD 2.6 mm</strong><span>221 色 · 自动匹配</span></div>
-        <div class="generator-actions" aria-label="生成方式" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-          <button id="generate-local" class="ghost" type="button">本地算法生成</button>
-          <button id="generate-image2" type="button">Image2 识图生成 <span>→</span></button>
+        <div class="generator-actions" aria-label="生成方式">
+          <button id="generate-local" class="ghost" type="button"><strong>本地算法生成</strong><small>本地计算 · 不耗 Token</small></button>
+          <button id="generate-image2" type="button"><strong>Image2 识图生成 ↗</strong><small>AI 生成 · 使用已配置接口</small></button>
         </div>
       </div>
       <p id="message" class="status" role="status"></p>
@@ -116,9 +122,11 @@
       </div>
       <div class="card summary"><div class="section-title"><div><span class="release-label">MATERIALS</span><h2>材料清单</h2></div><span id="total"></span></div><div id="palette"></div></div>
     </section>
+    <details class="release-notes"><summary>版本更新 <span>查看本次更新内容</span></summary><h2 id="release-title">v1.7.0 更新内容</h2><ul id="version-changes"><li>全新拼豆工作台：原创豆粒小花、双生成入口与移动端布局。</li></ul></details>
+    <footer class="studio-footer"><span>拼豆工作台</span><span>留一点时间，做一点喜欢的小事。</span></footer>
   </main>
-  <script src="/static/logs.js?build=ui-refresh-1"></script>
-  <script type="module" src="/static/app.js?build=v1.6.1"></script>
+  <script src="/static/logs.js?build=v1.7.0"></script>
+  <script type="module" src="/static/app.js?build=v1.7.0"></script>
 </body>
 </html>
 
