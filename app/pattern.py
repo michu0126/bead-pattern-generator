@@ -1,17 +1,21 @@
 from __future__ import annotations
 
-from collections import Counter, deque
+from collections import Counter
+from functools import lru_cache
 from io import BytesIO
 import math
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+from scipy import ndimage
 
 from .palette import BEAD_PALETTE
 
 
 MIN_CELL_COVERAGE = 0.08
 MAX_ANALYSIS_SIDE = 4096
+PALETTE_DISTANCE_BATCH = 512
+MIN_VISIBLE_ALPHA = 8
 
 
 def _srgb_to_lab(rgb: np.ndarray) -> np.ndarray:
@@ -112,47 +116,61 @@ def _packed_rgb(rgb: np.ndarray) -> np.ndarray:
     return (value[..., 0] << 16) | (value[..., 1] << 8) | value[..., 2]
 
 
-def _map_to_palette(pixels: np.ndarray, palette: list[dict]) -> np.ndarray:
-    """Exact 24-bit HEX match first; CIEDE2000 nearest MARD colour otherwise."""
-    flat = pixels.reshape(-1, 3).astype(np.uint8, copy=False)
-    palette_rgb = np.array([item["rgb"] for item in palette], dtype=np.uint8)
-    pixel_keys = _packed_rgb(flat)
-    palette_keys = _packed_rgb(palette_rgb)
+@lru_cache(maxsize=8)
+def _palette_lookup(colours: tuple[tuple[int, int, int], ...]) -> tuple[np.ndarray, ...]:
+    """Cache only palette data, never uploaded images or their colours."""
+    rgb = np.array(colours, dtype=np.uint8)
+    keys = _packed_rgb(rgb)
+    order = np.argsort(keys, kind="stable")
+    result = (keys[order], order, _srgb_to_lab(rgb))
+    for value in result:
+        value.flags.writeable = False
+    return result
 
-    order = np.argsort(palette_keys, kind="stable")
-    sorted_keys = palette_keys[order]
+
+def _map_to_palette(pixels: np.ndarray, palette: list[dict]) -> np.ndarray:
+    """Exact 24-bit HEX first, then bounded-memory CIEDE2000 over every MARD colour."""
+    if not palette:
+        raise ValueError("色卡不能为空")
+    flat = pixels.reshape(-1, 3).astype(np.uint8, copy=False)
+    sorted_keys, order, palette_lab = _palette_lookup(
+        tuple(tuple(item["rgb"]) for item in palette)
+    )
+    pixel_keys = _packed_rgb(flat)
     positions = np.searchsorted(sorted_keys, pixel_keys)
     bounded_positions = np.minimum(positions, len(sorted_keys) - 1)
     exact = (positions < len(sorted_keys)) & (sorted_keys[bounded_positions] == pixel_keys)
 
     mapped = np.empty(len(flat), dtype=np.int16)
     mapped[exact] = order[bounded_positions[exact]]
-    unmatched = ~exact
-    if np.any(unmatched):
-        pixel_lab = _srgb_to_lab(flat[unmatched])
-        palette_lab = _srgb_to_lab(palette_rgb)
+    unmatched = np.flatnonzero(~exact)
+    # The old 4096 x 221 distance matrix created many large float64 intermediates.
+    # Chunk here (also protecting direct callers), without pruning candidates or
+    # approximating HEX values. Results are identical to a full distance matrix.
+    for start in range(0, len(unmatched), PALETTE_DISTANCE_BATCH):
+        selection = unmatched[start:start + PALETTE_DISTANCE_BATCH]
+        pixel_lab = _srgb_to_lab(flat[selection])
         distances = _delta_e_2000(pixel_lab[:, None, :], palette_lab[None, :, :])
-        mapped[unmatched] = np.argmin(distances, axis=1)
+        mapped[selection] = np.argmin(distances, axis=1)
     return mapped.reshape(pixels.shape[:-1])
 
 
-def _pixel_palette_indices(rgb: np.ndarray, palette: list[dict]) -> np.ndarray:
-    """Match every distinct source HEX losslessly without reducing colour depth."""
-    flat_keys = _packed_rgb(rgb).reshape(-1)
-    unique_keys, inverse = np.unique(flat_keys, return_inverse=True)
+def _pixel_palette_indices(
+    rgb: np.ndarray, palette: list[dict], active: np.ndarray | None = None,
+) -> np.ndarray:
+    """Match each visible source HEX once; hidden RGB must never cost a lookup."""
+    if active is None:
+        active = np.ones(rgb.shape[:-1], dtype=bool)
+    labels = np.full(rgb.shape[:-1], -1, dtype=np.int16)
+    if not np.any(active):
+        return labels
+    unique_keys, inverse = np.unique(_packed_rgb(rgb[active]), return_inverse=True)
     unique_rgb = np.stack(
-        (
-            (unique_keys >> 16) & 255,
-            (unique_keys >> 8) & 255,
-            unique_keys & 255,
-        ),
+        ((unique_keys >> 16) & 255, (unique_keys >> 8) & 255, unique_keys & 255),
         axis=1,
     ).astype(np.uint8)
-    mapped = np.empty(len(unique_rgb), dtype=np.int16)
-    for start in range(0, len(unique_rgb), 4096):
-        stop = min(start + 4096, len(unique_rgb))
-        mapped[start:stop] = _map_to_palette(unique_rgb[start:stop], palette).reshape(-1)
-    return mapped[inverse].reshape(rgb.shape[:-1])
+    labels[active] = _map_to_palette(unique_rgb, palette)[inverse]
+    return labels
 
 
 def _prepare_source(image: Image.Image) -> np.ndarray:
@@ -169,85 +187,37 @@ def _prepare_source(image: Image.Image) -> np.ndarray:
     return np.array(source, dtype=np.uint8, copy=True)
 
 
-def _exterior_white_mask(pixels: np.ndarray) -> np.ndarray:
-    """Find near-white pixels connected to the outside edge of the image."""
-    rgb = pixels[..., :3].astype(np.int16)
-    alpha = pixels[..., 3]
-    candidate = (
-        (alpha >= 32)
-        & (np.min(rgb, axis=2) >= 230)
-        & ((np.max(rgb, axis=2) - np.min(rgb, axis=2)) <= 28)
-    )
-    rows, columns = candidate.shape
-    exterior = np.zeros_like(candidate)
-    queue: deque[tuple[int, int]] = deque()
-
-    for column in range(columns):
-        if candidate[0, column]:
-            queue.append((0, column))
-        if rows > 1 and candidate[rows - 1, column]:
-            queue.append((rows - 1, column))
-    for row in range(1, rows - 1):
-        if candidate[row, 0]:
-            queue.append((row, 0))
-        if columns > 1 and candidate[row, columns - 1]:
-            queue.append((row, columns - 1))
-
-    while queue:
-        row, column = queue.popleft()
-        if exterior[row, column] or not candidate[row, column]:
-            continue
-        exterior[row, column] = True
-        if row > 0:
-            queue.append((row - 1, column))
-        if row + 1 < rows:
-            queue.append((row + 1, column))
-        if column > 0:
-            queue.append((row, column - 1))
-        if column + 1 < columns:
-            queue.append((row, column + 1))
-    return exterior
-
-
-
 def _discardable_white_mask(pixels: np.ndarray) -> np.ndarray:
-    """Discard white outside the subject, retaining only enclosed white regions that touch it."""
-    rgb = pixels[..., :3].astype(np.int16)
+    """Four-connected white-background cleanup for an opaque source.
+
+    This is a colour heuristic, not semantic segmentation. Callers must honour
+    existing transparency instead of deleting white from a supplied cutout.
+    Warm off-whites/pastels are not background just because they are bright.
+    """
+    rgb = pixels[..., :3]
     alpha = pixels[..., 3]
     white = (
-        (alpha >= 32)
-        & (np.min(rgb, axis=2) >= 230)
-        & ((np.max(rgb, axis=2) - np.min(rgb, axis=2)) <= 28)
+        (alpha >= MIN_VISIBLE_ALPHA)
+        & (np.min(rgb, axis=2) >= 245)
+        & (np.ptp(rgb, axis=2) <= 10)
     )
-    rows, columns = white.shape
-    discard = np.zeros_like(white)
-    visited = np.zeros_like(white)
-    for start_row, start_column in zip(*np.nonzero(white)):
-        if visited[start_row, start_column]:
-            continue
-        queue: deque[tuple[int, int]] = deque([(int(start_row), int(start_column))])
-        component: list[tuple[int, int]] = []
-        touches_edge = False
-        touches_subject = False
-        while queue:
-            row, column = queue.popleft()
-            if visited[row, column] or not white[row, column]:
-                continue
-            visited[row, column] = True
-            component.append((row, column))
-            touches_edge |= row in {0, rows - 1} or column in {0, columns - 1}
-            for next_row, next_column in ((row - 1, column), (row + 1, column), (row, column - 1), (row, column + 1)):
-                if 0 <= next_row < rows and 0 <= next_column < columns:
-                    if white[next_row, next_column]:
-                        if not visited[next_row, next_column]:
-                            queue.append((next_row, next_column))
-                    elif alpha[next_row, next_column] >= 32:
-                        touches_subject = True
-        # Keep white only when it is a real enclosed fill of the neighbouring subject.
-        if touches_edge or not touches_subject:
-            for row, column in component:
-                discard[row, column] = True
-    return discard
+    subject = (alpha >= MIN_VISIBLE_ALPHA) & ~white
+    if not np.any(white) or not np.any(subject):
+        # A white-only picture has no evidence of a separable background.
+        return np.zeros(white.shape, dtype=bool)
+
+    # SciPy uses a four-connected cross by default. Compiled component labelling
+    # replaces a Python queue/list containing millions of coordinate tuples.
+    components, count = ndimage.label(white)
+    touches_subject = ndimage.binary_dilation(subject) & white
+    keep = np.zeros(count + 1, dtype=bool)
+    keep[np.unique(components[touches_subject])] = True
+    border = np.concatenate((
+        components[0], components[-1], components[:, 0], components[:, -1],
+    ))
+    keep[np.unique(border)] = False
+    keep[0] = False
+    return white & ~keep[components]
 
 
 def _focused_geometry(
@@ -255,66 +225,32 @@ def _focused_geometry(
     target_width: int,
     target_height: int,
 ) -> tuple[float, float, float, float]:
-    """Zoom small boards around the remaining subject without clipping it."""
+    """Fit the whole image; focus small boards without ever clipping the subject."""
     source_height, source_width = pixels.shape[:2]
     normal = _fit_geometry(source_width, source_height, target_width, target_height)
     if not (50 <= target_width <= 52 and 50 <= target_height <= 52):
         return normal
-    active = pixels[..., 3] >= 32
-    rows, columns = np.nonzero(active)
-    if not len(rows):
+    active = pixels[..., 3] >= MIN_VISIBLE_ALPHA
+    rows = np.flatnonzero(np.any(active, axis=1))
+    columns = np.flatnonzero(np.any(active, axis=0))
+    if not len(rows) or not len(columns):
         return normal
-    min_row, max_row = int(rows.min()), int(rows.max()) + 1
-    min_column, max_column = int(columns.min()), int(columns.max()) + 1
-    content_width = max_column - min_column
-    content_height = max_row - min_row
-    normal_width, normal_height = normal[2], normal[3]
-    # Zoom only when the subject uses less than 76% of either board dimension.
-    if content_width / normal_width >= 0.76 and content_height / normal_height >= 0.76:
+    min_row, max_row = int(rows[0]), int(rows[-1]) + 1
+    min_column, max_column = int(columns[0]), int(columns[-1]) + 1
+    # Reserve two bead cells on each side, rather than wasting 24% extra canvas.
+    scale = max(
+        (max_column - min_column) / (target_width - 4),
+        (max_row - min_row) / (target_height - 4),
+    )
+    frame_width = target_width * scale
+    frame_height = target_height * scale
+    if frame_width >= normal[2] * 0.9:
         return normal
-    padding = 0.12
-    required_width = content_width * (1 + padding * 2)
-    required_height = content_height * (1 + padding * 2)
-    ratio = target_width / target_height
-    crop_width = max(required_width, required_height * ratio)
-    crop_height = crop_width / ratio
-    if crop_height > source_height:
-        crop_height = float(source_height)
-        crop_width = crop_height * ratio
-    if crop_width > source_width:
-        crop_width = float(source_width)
-        crop_height = crop_width / ratio
-    # Focus on the source content centre, clamping safely to source bounds.
     centre_x = (min_column + max_column) / 2
     centre_y = (min_row + max_row) / 2
-    left = min(max(centre_x - crop_width / 2, 0.0), source_width - crop_width)
-    top = min(max(centre_y - crop_height / 2, 0.0), source_height - crop_height)
-    return left, top, crop_width, crop_height
-
-
-def _local_label_agreement(labels: np.ndarray, active: np.ndarray) -> np.ndarray:
-    """Rate palette labels by local support so one-pixel antialias colours lose influence."""
-    matches = np.zeros(labels.shape, dtype=np.float32)
-    neighbours = np.zeros(labels.shape, dtype=np.float32)
-
-    valid = active[1:, :] & active[:-1, :]
-    same = valid & (labels[1:, :] == labels[:-1, :])
-    neighbours[1:, :] += valid
-    neighbours[:-1, :] += valid
-    matches[1:, :] += same
-    matches[:-1, :] += same
-
-    valid = active[:, 1:] & active[:, :-1]
-    same = valid & (labels[:, 1:] == labels[:, :-1])
-    neighbours[:, 1:] += valid
-    neighbours[:, :-1] += valid
-    matches[:, 1:] += same
-    matches[:, :-1] += same
-
-    agreement = np.ones(labels.shape, dtype=np.float32)
-    np.divide(matches, neighbours, out=agreement, where=neighbours > 0)
-    agreement[~active] = 0
-    return agreement
+    # A virtual frame may extend outside the source. Those parts contribute zero
+    # area/alpha. Clamping this frame used to crop off wide/tall or off-centre art.
+    return centre_x - frame_width / 2, centre_y - frame_height / 2, frame_width, frame_height
 
 
 def _fit_geometry(
@@ -323,20 +259,16 @@ def _fit_geometry(
     target_width: int,
     target_height: int,
 ) -> tuple[float, float, float, float]:
-    """Return the centred source crop used to fill the requested bead board."""
-    target_ratio = target_width / target_height
-    source_ratio = source_width / source_height
-    if source_ratio > target_ratio:
-        crop_height = float(source_height)
-        crop_width = crop_height * target_ratio
-        left = (source_width - crop_width) / 2
-        top = 0.0
-    else:
-        crop_width = float(source_width)
-        crop_height = crop_width / target_ratio
-        left = 0.0
-        top = (source_height - crop_height) / 2
-    return left, top, crop_width, crop_height
+    """Centred contain-fit: preserve aspect ratio and pad, never crop to fill."""
+    scale = max(source_width / target_width, source_height / target_height)
+    frame_width = target_width * scale
+    frame_height = target_height * scale
+    return (
+        (source_width - frame_width) / 2,
+        (source_height - frame_height) / 2,
+        frame_width,
+        frame_height,
+    )
 
 
 def _axis_overlaps(length: int, start: float, end: float) -> tuple[np.ndarray, np.ndarray]:
@@ -363,7 +295,7 @@ def _choose_cell_palette(
     palette_size: int,
 ) -> int:
     """Categorically downsample already-quantised MARD labels, never RGB values."""
-    raw_weight = area * (alpha.astype(np.float64) / 255.0)
+    raw_weight = np.where(labels >= 0, area * (alpha.astype(np.float64) / 255.0), 0.0)
     coverage = raw_weight.sum() / max(cell_area, 1e-12)
     active = (labels >= 0) & (raw_weight > 1e-12)
     if coverage < MIN_CELL_COVERAGE or not np.any(active):
@@ -398,13 +330,23 @@ def _choose_cell_palette(
 def _sample_cells(image: Image.Image, width: int, height: int, palette: list[dict]) -> np.ndarray:
     """Quantise source pixels first, then downsample MARD labels by exact area."""
     pixels = _prepare_source(image)
-    pixels[_discardable_white_mask(pixels), 3] = 0
+    if np.all(pixels[..., 3] == 255):
+        pixels[_discardable_white_mask(pixels), 3] = 0
 
-    active = pixels[..., 3] >= 8
-    labels = _pixel_palette_indices(pixels[..., :3], palette)
-    labels[~active] = -1
+    active = pixels[..., 3] >= MIN_VISIBLE_ALPHA
+    labels = _pixel_palette_indices(pixels[..., :3], palette, active)
     left, top, crop_width, crop_height = _focused_geometry(pixels, width, height)
     indices = np.full((height, width), -1, dtype=np.int16)
+
+    # Axis footprints are reused across all rows/columns instead of rebuilding
+    # the same x overlaps for every bead. Coordinates outside the frame stay empty.
+    x_footprints = []
+    for column in range(width):
+        x0 = left + column * crop_width / width
+        x1 = left + (column + 1) * crop_width / width
+        x_indices, x_overlap = _axis_overlaps(pixels.shape[1], x0, x1)
+        x_distance = (x_indices + 0.5 - (x0 + x1) / 2) / max((x1 - x0) / 2, 1e-12)
+        x_footprints.append((x_indices, x_overlap, x_distance))
 
     for row in range(height):
         y0 = top + row * crop_height / height
@@ -414,18 +356,12 @@ def _sample_cells(image: Image.Image, width: int, height: int, palette: list[dic
         y_radius = max((y1 - y0) / 2, 1e-12)
         y_distance = (y_indices + 0.5 - y_center) / y_radius
 
-        for column in range(width):
-            x0 = left + column * crop_width / width
-            x1 = left + (column + 1) * crop_width / width
-            x_indices, x_overlap = _axis_overlaps(pixels.shape[1], x0, x1)
+        for column, (x_indices, x_overlap, x_distance) in enumerate(x_footprints):
             area = np.outer(y_overlap, x_overlap)
-            cell_area = (y1 - y0) * (x1 - x0)
-
-            x_center = (x0 + x1) / 2
-            x_radius = max((x1 - x0) / 2, 1e-12)
-            x_distance = (x_indices + 0.5 - x_center) / x_radius
+            cell_area = (y1 - y0) * crop_width / width
             distance_squared = y_distance[:, None] ** 2 + x_distance[None, :] ** 2
-            center_weight = 1.0 + 0.35 * np.clip(1.0 - distance_squared, 0.0, 1.0)
+            # Do not clip distances: clipping made many non-central pixels tie.
+            center_weight = -distance_squared
 
             selection = np.ix_(y_indices, x_indices)
             indices[row, column] = _choose_cell_palette(

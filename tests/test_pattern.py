@@ -7,7 +7,7 @@ from app.pattern import _delta_e_2000, _discardable_white_mask, _map_to_palette,
 
 
 def test_generate_pattern_returns_png_and_correct_total():
-    image = Image.new("RGB", (64, 64), (220, 50, 50))
+    image = Image.new("RGB", (64, 48), (220, 50, 50))
     output, summary, grid = generate_pattern(image, 16, 12)
     assert output.startswith(b"\x89PNG")
     assert sum(item["count"] for item in summary) == 16 * 12
