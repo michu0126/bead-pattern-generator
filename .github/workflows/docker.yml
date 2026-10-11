@@ -27,6 +27,8 @@ jobs:
           node --input-type=module --check < app/static/app.js
           node --check app/static/logs.js
           node --check app/static/editor-core.mjs
+      - name: Test editable Image2 grid and materials
+        run: node --test tests/editor-image2.test.mjs
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -48,7 +50,7 @@ jobs:
             name=${{ vars.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }},enable=${{ vars.DOCKERHUB_USERNAME != '' }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=v1.8.0,priority=1000,enable={{is_default_branch}}
+            type=raw,value=v1.9.0,priority=1000,enable={{is_default_branch}}
             type=ref,event=branch
             type=ref,event=tag
             type=semver,pattern={{version}}

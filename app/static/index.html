@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼豆图纸生成器</title>
-  <link rel="stylesheet" href="/static/style.css?build=v1.8.0">
-  <link rel="stylesheet" href="/static/logs.css?build=v1.8.0">
+  <link rel="stylesheet" href="/static/style.css?build=v1.9.0">
+  <link rel="stylesheet" href="/static/logs.css?build=v1.9.0">
 </head>
 <body>
   <div class="bead-backdrop" aria-hidden="true"></div>
@@ -14,7 +14,7 @@
       <div class="topline">
         <span class="brand"><i></i> 拼豆工作台</span>
         <div class="version-actions">
-          <span class="version-badge">v<span id="app-version">1.8.0</span></span>
+          <span class="version-badge">v<span id="app-version">1.9.0</span></span>
           <button id="open-api-settings" class="cache-button" type="button">API 设置</button>
           <button id="clear-cache" class="cache-button" type="button">刷新</button>
         </div>
@@ -25,7 +25,7 @@
           <p>从一张图片，到一份属于你的拼豆图纸。</p>
           <div class="hero-tags"><span>221 色 MARD 色卡</span><span>自由编辑每一格</span><span>材料用量一目了然</span></div>
         </div>
-        <figure class="hero-art"><img src="/static/bead-background.svg?build=v1.8.0" alt="用粉色和绿色豆粒拼成的小花图案"><figcaption>MAKE SOMETHING YOU LOVE</figcaption></figure>
+        <figure class="hero-art"><img src="/static/bead-background.svg?build=v1.9.0" alt="用粉色和绿色豆粒拼成的小花图案"><figcaption>MAKE SOMETHING YOU LOVE</figcaption></figure>
       </div>
     </header>
 
@@ -122,11 +122,11 @@
       </div>
       <div class="card summary"><div class="section-title"><div><span class="release-label">MATERIALS</span><h2>材料清单</h2></div><span id="total"></span></div><div id="palette"></div></div>
     </section>
-    <details class="release-notes"><summary>版本更新 <span>查看本次更新内容</span></summary><h2 id="release-title">v1.8.0 更新内容</h2><ul id="version-changes"><li>本地算法优化：等比完整适配、白色主体保护与更低的颜色匹配开销。</li></ul></details>
+    <details class="release-notes"><summary>版本更新 <span>查看本次更新内容</span></summary><h2 id="release-title">v1.9.0 更新内容</h2><ul id="version-changes"><li>保留本地小特征，优化 Image2 逐格取色和白格判断，材料清单与像素编辑同步。</li></ul></details>
     <footer class="studio-footer"><span>拼豆工作台</span><span>留一点时间，做一点喜欢的小事。</span></footer>
   </main>
-  <script src="/static/logs.js?build=v1.8.0"></script>
-  <script type="module" src="/static/app.js?build=v1.8.0"></script>
+  <script src="/static/logs.js?build=v1.9.0"></script>
+  <script type="module" src="/static/app.js?build=v1.9.0"></script>
 </body>
 </html>
 

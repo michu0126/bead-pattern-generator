@@ -27,6 +27,7 @@ let proposedCutout = null;
 let sourceUrl = null;
 let cutoutUrl = null;
 let patternGrid = [];
+let patternWarnings = [];
 let availableColours = [];
 let colourByCode = new Map();
 let selectedCell = null;
@@ -484,6 +485,12 @@ function refreshMaterials() {
     .map(([code, count]) => ({ ...colourByCode.get(code), count }))
     .sort((a, b) => b.count - a.count);
   renderMaterials(items, total, { width: columns, height: rows }, empty);
+  patternWarnings.forEach(text => {
+    const warning = document.createElement('p');
+    warning.className = 'status';
+    warning.textContent = text;
+    $('#palette').append(warning);
+  });
 }
 
 function updatePixelPanel() {
@@ -502,6 +509,7 @@ function updatePixelPanel() {
 
 function initializeEditor(data) {
   patternGrid = data.grid.map(row => [...row]);
+  patternWarnings = Array.isArray(data.warnings) ? data.warnings.filter(item => typeof item === 'string') : [];
   availableColours = data.colours;
   colourByCode = new Map(availableColours.map(item => [item.code, item]));
   selectedCell = null;
@@ -560,83 +568,21 @@ $('#undo-pixel').addEventListener('click', () => {
   updatePixelPanel();
 });
 
-function loadImage(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('无法读取 Image2 图纸'));
-    image.src = dataUrl;
-  });
-}
-
-function closestMardCode(rgb) {
-  let closest = null;
-  let distance = Number.POSITIVE_INFINITY;
-  colourByCode.forEach(colour => {
-    const score = (rgb[0] - colour.rgb[0]) ** 2 + (rgb[1] - colour.rgb[1]) ** 2 + (rgb[2] - colour.rgb[2]) ** 2;
-    if (score < distance) {
-      closest = colour.code;
-      distance = score;
-    }
-  });
-  return closest;
-}
-
-function clearExteriorWhite(grid) {
-  const rows = grid.length;
-  const columns = grid[0]?.length || 0;
-  const isWhite = code => {
-    const rgb = colourByCode.get(code)?.rgb;
-    return rgb && rgb[0] > 238 && rgb[1] > 238 && rgb[2] > 238;
-  };
-  const queue = [];
-  const enqueue = (row, column) => {
-    if (row < 0 || column < 0 || row >= rows || column >= columns || !isWhite(grid[row][column])) return;
-    grid[row][column] = null;
-    queue.push([row, column]);
-  };
-  for (let column = 0; column < columns; column += 1) { enqueue(0, column); enqueue(rows - 1, column); }
-  for (let row = 0; row < rows; row += 1) { enqueue(row, 0); enqueue(row, columns - 1); }
-  while (queue.length) {
-    const [row, column] = queue.shift();
-    enqueue(row - 1, column); enqueue(row + 1, column); enqueue(row, column - 1); enqueue(row, column + 1);
+function showDirectImage2Pattern(data) {
+  const colours = Array.isArray(data.colours) ? data.colours : [];
+  const codes = new Set(colours.map(item => item.code));
+  if (!codes.size) throw new Error('Image2 图纸缺少 MARD 色卡数据，无法进入编辑器');
+  const width = data.board?.width;
+  const height = data.board?.height;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1
+    || data.width !== width || data.height !== height
+    || !Array.isArray(data.grid) || data.grid.length !== height
+    || !data.grid.every(row => Array.isArray(row) && row.length === width
+      && row.every(code => code === null || codes.has(code)))) {
+    throw new Error('Image2 图纸缺少有效的逐格解析结果，请更新容器后重新生成');
   }
-}
-
-async function image2Grid(data) {
-  const board = data.board;
-  const image = await loadImage(data.image);
-  const sampler = document.createElement('canvas');
-  sampler.width = image.naturalWidth;
-  sampler.height = image.naturalHeight;
-  const samplerContext = sampler.getContext('2d', { willReadFrequently: true });
-  samplerContext.drawImage(image, 0, 0);
-  const pixels = samplerContext.getImageData(0, 0, sampler.width, sampler.height).data;
-  const offsets = [0.18, 0.32, 0.68, 0.82];
-  const codeAt = (row, column) => {
-    const votes = new Map();
-    offsets.forEach(yOffset => offsets.forEach(xOffset => {
-      const x = Math.min(sampler.width - 1, Math.floor((column + xOffset) * sampler.width / board.width));
-      const y = Math.min(sampler.height - 1, Math.floor((row + yOffset) * sampler.height / board.height));
-      const index = (y * sampler.width + x) * 4;
-      if (pixels[index + 3] < 128) return;
-      const code = closestMardCode([pixels[index], pixels[index + 1], pixels[index + 2]]);
-      votes.set(code, (votes.get(code) || 0) + 1);
-    }));
-    return [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-  };
-  const grid = Array.from({ length: board.height }, (_, row) => Array.from({ length: board.width }, (_, column) => codeAt(row, column)));
-  clearExteriorWhite(grid);
-  return grid;
-}
-
-async function showDirectImage2Pattern(data) {
-  availableColours = data.colours || [];
-  colourByCode = new Map(availableColours.map(item => [item.code, item]));
-  if (!colourByCode.size) throw new Error('Image2 图纸缺少 MARD 色卡数据，无法进入编辑器');
-  const grid = await image2Grid(data);
-  initializeEditor({ grid, colours: availableColours });
-  if (data.material_warning) $('#palette').insertAdjacentHTML('afterbegin', `<p class="status">${data.material_warning}</p>`);
+  // 服务端解析后的网格是编辑、导出和材料清单的唯一数据源，不再对带字图纸采样。
+  initializeEditor(data);
 }
 
 async function generatePattern(mode) {

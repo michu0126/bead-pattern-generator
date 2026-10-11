@@ -16,6 +16,9 @@ MIN_CELL_COVERAGE = 0.08
 MAX_ANALYSIS_SIDE = 4096
 PALETTE_DISTANCE_BATCH = 512
 MIN_VISIBLE_ALPHA = 8
+MIN_DETAIL_AREA = 0.25
+MIN_DETAIL_CELL_AREA = 0.08
+MIN_DETAIL_CONTRAST = 20.0
 
 
 def _srgb_to_lab(rgb: np.ndarray) -> np.ndarray:
@@ -372,6 +375,115 @@ def _sample_cells(image: Image.Image, width: int, height: int, palette: list[dic
                 cell_area,
                 len(palette),
             )
+    return _preserve_small_details(
+        indices, labels, pixels[..., 3], palette,
+        (left, top, crop_width, crop_height),
+    )
+
+
+def _preserve_small_details(
+    indices: np.ndarray,
+    labels: np.ndarray,
+    alpha: np.ndarray,
+    palette: list[dict],
+    geometry: tuple[float, float, float, float],
+) -> np.ndarray:
+    """Rescue small enclosed features lost by majority sampling, not edge noise.
+
+    A bead cannot hold all the colours inside its footprint. Keep exact-area
+    voting as the baseline, then allow ONE bead for a substantial, high-contrast
+    connected feature which otherwise has no representative at all. This is a
+    deliberate topology/visibility tradeoff, never RGB interpolation or a new
+    colour. It is limited to low-colour art and never removes an occupied bead.
+    """
+    height, width = indices.shape
+    left, top, frame_width, frame_height = geometry
+    scale_x, scale_y = frame_width / width, frame_height / height
+    cell_area = scale_x * scale_y
+    if min(width, height) < 8 or min(scale_x, scale_y) < 2:
+        return indices
+    core = (labels >= 0) & (alpha >= 224)
+    colours, colour_counts = np.unique(labels[core], return_counts=True)
+    # Photographic texture has no reliable small-flat-feature interpretation.
+    # This only gates the rescue pass; quantisation still uses all 221 colours.
+    significant_count = np.searchsorted(
+        np.cumsum(np.sort(colour_counts)[::-1]), colour_counts.sum() * 0.98,
+    ) + 1
+    if significant_count > 32:
+        return indices
+    palette_lab = _palette_lookup(tuple(tuple(item["rgb"]) for item in palette))[2]
+    contrasts = _delta_e_2000(palette_lab[:, None, :], palette_lab[None, :, :])
+    corrections = []
+    for colour in colours:
+        components, count = ndimage.label(core & (labels == colour), structure=np.ones((3, 3)))
+        sizes = np.bincount(components.ravel(), minlength=count + 1)
+        candidates = np.flatnonzero((sizes >= max(4, cell_area * MIN_DETAIL_AREA)) & (sizes <= cell_area * 3))
+        candidates = candidates[candidates != 0]
+        if not len(candidates):
+            continue
+        # Only allocate bounding boxes for eligible components: millions of
+        # one-pixel compression/noise islands must not create Python slice lists.
+        eligible = np.zeros(count + 1, dtype=np.int32)
+        eligible[candidates] = np.arange(1, len(candidates) + 1, dtype=np.int32)
+        boxes = ndimage.find_objects(eligible[components], max_label=len(candidates))
+        for component, box in zip(candidates, boxes):
+            y_slice, x_slice = box
+            if (x_slice.stop - x_slice.start > scale_x * 3
+                    or y_slice.stop - y_slice.start > scale_y * 3):
+                continue
+            # Enclosed opaque features only: a transparent fringe or an object
+            # touching the image edge is not evidence of a missing eye/detail.
+            padding = max(2, min(4, math.ceil(min(scale_x, scale_y) * 0.15)))
+            y0, y1 = max(0, y_slice.start - padding), min(labels.shape[0], y_slice.stop + padding)
+            x0, x1 = max(0, x_slice.start - padding), min(labels.shape[1], x_slice.stop + padding)
+            if y0 == 0 or x0 == 0 or y1 == labels.shape[0] or x1 == labels.shape[1]:
+                continue
+            region = components[y0:y1, x0:x1] == component
+            halo = ndimage.binary_dilation(region, iterations=padding) & ~region
+            halo_labels = labels[y0:y1, x0:x1][halo]
+            if not len(halo_labels) or np.any(halo_labels < 0) or np.any(alpha[y0:y1, x0:x1][halo] < 224):
+                continue
+            contrast = contrasts[int(colour), halo_labels] >= MIN_DETAIL_CONTRAST**2
+            if np.mean(contrast) < 0.65:
+                continue
+
+            first_column = max(0, int(math.floor((x_slice.start - left) / scale_x)))
+            last_column = min(width, int(math.ceil((x_slice.stop - left) / scale_x)))
+            first_row = max(0, int(math.floor((y_slice.start - top) / scale_y)))
+            last_row = min(height, int(math.ceil((y_slice.stop - top) / scale_y)))
+            choices = []
+            represented = False
+            for row in range(first_row, last_row):
+                ys, y_weights = _axis_overlaps(labels.shape[0], top + row * scale_y, top + (row + 1) * scale_y)
+                for column in range(first_column, last_column):
+                    xs, x_weights = _axis_overlaps(labels.shape[1], left + column * scale_x, left + (column + 1) * scale_x)
+                    selection = np.ix_(ys, xs)
+                    feature = components[selection] == component
+                    share = float(np.sum(feature * np.outer(y_weights, x_weights) * (alpha[selection] / 255.0))) / cell_area
+                    if share < MIN_DETAIL_CELL_AREA:
+                        continue
+                    current = int(indices[row, column])
+                    if current == colour:
+                        represented = True
+                    elif current >= 0 and contrasts[int(colour), current] >= MIN_DETAIL_CONTRAST**2:
+                        choices.append((share, row, column))
+            if choices and not represented:
+                corrections.append((int(sizes[component]), int(colour), sorted(choices, reverse=True)))
+
+    # Resolve competing features deterministically, largest first. Do not replace
+    # the sole local representative of another colour or an earlier rescued bead.
+    locked = set()
+    for _, colour, choices in sorted(corrections, key=lambda item: (-item[0], item[1])):
+        for _, row, column in choices:
+            if (row, column) in locked:
+                continue
+            current = indices[row, column]
+            neighbours = indices[max(0, row - 1):row + 2, max(0, column - 1):column + 2]
+            if np.count_nonzero(neighbours == current) < 2:
+                continue
+            indices[row, column] = colour
+            locked.add((row, column))
+            break
     return indices
 
 

@@ -11,8 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from .ai import AIServiceError, ai_configured, create_pattern_reference, extract_direct_pattern_materials, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
+from .ai import AIServiceError, ai_configured, create_pattern_reference, generate_direct_bead_pattern, image_model, remove_background, suggest_cutout_subjects, vision_model
 from .api_logs import clear_api_calls, list_api_calls
+from .chart_parser import parse_image2_chart
 from .local_cutout import LocalCutoutError, model_name as local_cutout_model, remove_background_locally
 from .palette import BEAD_PALETTE
 from .pattern import generate_pattern
@@ -29,13 +30,13 @@ from .settings import (
     test_api_connection,
 )
 
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.9.0"
 VERSION_CHANGES = [
-    "本地图纸等比完整适配板子，修复长图两端与小板放大时主体被裁切的问题",
-    "透明抠图以透明通道为准，保留白色主体；减少不透明图片中米白、浅粉被误删",
-    "保留 HEX 精确匹配与完整 MARD 相近色匹配，跳过隐藏 RGB 并限制色差计算批次",
-    "加速白色背景连通区域处理，修正覆盖率与面积平票时的选色规则",
-    "保持 v1.7.0 拼豆工作台外观，Image2、抠图引擎、材料清单和像素编辑功能不变",
+    "本地生成补回被面积投票遗漏的小眼睛、小嘴等高对比细节",
+    "Image2 图纸在服务器逐格解析，避开格线和文字，统一 HEX 与 MARD 色差匹配",
+    "保留未抠图原图的白色；透明源图谨慎区分空格、带字白格与封闭白区",
+    "材料清单直接统计最终网格，与像素编辑同步，减少一次视觉模型估数调用",
+    "网格行列不符时提示重新生成，低置信色块与过小格子提示核对",
 ]
 
 BOARD_SPECS = {
@@ -347,24 +348,20 @@ async def ai_generate_pattern(
     except AIServiceError as error:
         status = 503 if "尚未配置" in str(error) else 502
         raise HTTPException(status, str(error)) from None
-    material_warning = None
     try:
-        materials = await extract_direct_pattern_materials(result, spec["width"], spec["height"])
-    except AIServiceError as error:
-        materials = []
-        material_warning = str(error)
-    palette_by_code = {item["code"]: item for item in BEAD_PALETTE}
-    palette = [
-        {**palette_by_code[str(item["code"])], "count": int(item["count"])}
-        for item in materials
-        if str(item["code"]) in palette_by_code
-    ]
+        with Image.open(BytesIO(result)) as chart, Image.open(BytesIO(raw)) as source:
+            parsed = await run_in_threadpool(
+                parse_image2_chart, chart, spec["width"], spec["height"], source_image=source,
+            )
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(502, "Image2 返回的图纸无法读取，请重新生成") from None
+    except ValueError as error:
+        raise HTTPException(502, f"Image2 图纸解析失败：{error}") from None
     return {
+        **parsed,
         "engine": image_model(),
         "board": spec,
-        "palette": palette,
-        "total": sum(item["count"] for item in palette),
-        "material_warning": material_warning,
+        "material_warning": "；".join(parsed["warnings"]) or None,
         "colours": [
             {
                 "code": item["code"],

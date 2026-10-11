@@ -71,6 +71,12 @@ def fixture(name):
         draw = ImageDraw.Draw(image)
         draw.ellipse((260, 180, 940, 860), fill=colours['E9'], outline='black', width=24)
         draw.rectangle((572, 840, 628, 1080), fill=colours['B8'])
+    elif name == 'small_features':
+        image = Image.new('RGB', (520, 520), colours['E3'])
+        draw = ImageDraw.Draw(image)
+        # Six-pixel eyes each cross four ten-pixel bead cells (9% per cell).
+        draw.rectangle((157, 197, 162, 202), fill=colours['H7'])
+        draw.rectangle((357, 197, 362, 202), fill=colours['H7'])
     else:
         image = Image.open(name)
     return image
@@ -117,7 +123,7 @@ if __name__ == '__main__':
     if args.engine:
         worker(args)
     else:
-        for case in ([args.fixture] if args.fixture else ['wide', 'white_cutout', 'hidden_rgb', 'white_canvas']):
+        for case in ([args.fixture] if args.fixture else ['wide', 'white_cutout', 'hidden_rgb', 'white_canvas', 'small_features']):
             for engine in ['baseline', 'optimized']:
                 command = [sys.executable, __file__, '--engine', engine, '--fixture', case, '--baseline-ref', args.baseline_ref]
                 if args.output_dir:
